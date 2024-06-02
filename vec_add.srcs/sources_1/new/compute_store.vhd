@@ -19,7 +19,7 @@
 ----------------------------------------------------------------------------------
 
 library IEEE;
-use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.std_logic_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
 
 use work.bus_array_pkg.all;
@@ -52,7 +52,12 @@ entity compute_store is
             z_this : in  bus_array(0 to num_blocks - 1)(float_width - 1 downto 0);
             z_target : in std_logic_vector(float_width - 1 downto 0);
             mask : in std_logic_vector(0 to num_blocks - 1);
-            store_complete : out std_logic);
+            write_addr : out std_logic_vector ( 31 downto 0 );
+            write_din : out std_logic_vector ( 127 downto 0 );
+            write_en : out std_logic;
+            write_rst : out std_logic;
+            write_we : out std_logic_vector ( 15 downto 0 );
+            store_busy : out std_logic);
 end compute_store;
 
 architecture RTL of compute_store is
@@ -61,11 +66,11 @@ architecture RTL of compute_store is
     signal BASE_PTR : std_logic_vector(log_ram_depth - 1 downto 0) := (0 => '1', others => '0');
     signal STORE_PTR : std_logic_vector(log_ram_depth - 1 downto 0) := BASE_PTR;
 
-    signal RESULTS : bus_array(0 to 3*fma_latency*num_blocks - 1)(float_width - 1 downto 0);
-    signal RESULT_CUR : std_logic_vector(float_width - 1 downto 0);
+    signal FMA_RES : bus_array(0 to 3*fma_latency*num_blocks - 1)(float_width - 1 downto 0);
+    signal FMA_RES_CUR : std_logic_vector(float_width - 1 downto 0);
+    signal BUFF_SUM : std_logic_vector(float_width - 1 downto 0);
     signal BLOCK_BUSY : std_logic := '1';
     signal SCATTER_COMPLETE : std_logic := '0';
-
 
 begin
 
@@ -91,6 +96,9 @@ begin
         generic map()
         port map();
     */
+
+
+    write_addr <= (31 downto 28 => "1011", log_ram_depth + log_word_width - 1 downto log_word_width => STORE_PTR, others => '0');
 
 
 end RTL;

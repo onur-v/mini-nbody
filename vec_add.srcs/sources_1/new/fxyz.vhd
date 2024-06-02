@@ -50,8 +50,8 @@ entity fxyz is
             z_this : in std_logic_vector(float_width - 1 downto 0);
             z_target : in std_logic_vector(float_width - 1 downto 0);
             results : out bus_array(0 to 3*fma_latency - 1)(float_width - 1 downto 0);
-            block_busy : out std_logic;
-            block_scatter_complete : out std_logic);
+            fma_busy : out std_logic;
+            scatter_complete : out std_logic);
 end fxyz;
 
 architecture RTL of fxyz is
@@ -85,7 +85,7 @@ end component;
 
     signal SHR_DXDYDZ : shr_struct_3(0 to shr_depth);
     signal VALID_1, VALID_2, VALID_FMA, VALID_FMA_PREV : std_logic := '0';
-    signal DIST_SQR, inV_DIST, INV_DIST3 : std_logic_vector(float_width - 1 downto 0);
+    signal DIST_SQR, INV_DIST, INV_DIST3 : std_logic_vector(float_width - 1 downto 0);
     signal DXDYDZ : std_logic_vector(3*float_width - 1 downto 0) := (others => '0'); 
     signal VALID_FX, VALID_FY, VALID_FZ : std_logic := '0';
     signal FX_IN, FY_IN, FZ_IN : std_logic_vector(float_width - 1 downto 0);
@@ -102,7 +102,7 @@ begin
 
     STAGE1 : entity work.dxyz_soft
     generic map(float_width, fractional, add_latency, mult_latency, fma_latency)
-    port map(aclk, x_this, x_target, y_this, y_target, z_this, z_target, VALID_1, DIST_SQR, DXDYDZ);
+    port map(aclk, valid_in, x_this, x_target, y_this, y_target, z_this, z_target, VALID_1, DIST_SQR, DXDYDZ);
 
     STAGE2 : rsqrt
     port map(aclk, VALID_1, DIST_SQR, VALID_2, INV_DIST);
@@ -194,9 +194,9 @@ begin
         begin
             if rising_edge(aclk) then
                 if SCTTR_CTR = fma_latency - 1 then
-                    block_scatter_complete <= '1';
+                    scatter_complete <= '1';
                 else
-                    block_scatter_complete <= '0';
+                    scatter_complete <= '0';
                 end if ;
             end if ;
         end process;
@@ -205,15 +205,15 @@ begin
         begin
             if rising_edge(aclk) then
                 if SCTTR_CTR = fma_latency - 1 then
-                    block_busy <= '0';
+                    fma_busy <= '0';
                 elsif valid_in then
-                    block_busy <= '1';
+                    fma_busy <= '1';
                 end if ;
             end if ;
         end process;
     else generate
-        block_scatter_complete <= '0';
-        block_busy <= '0';
+        scatter_complete <= '0';
+        fma_busy <= '0';
     end generate GEN_SGN;
         
 end RTL;
