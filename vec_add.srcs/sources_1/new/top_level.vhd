@@ -23,7 +23,9 @@ library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
 
-use work.bus_array_pkg.all;
+package bus_array_pkg is
+        type bus_array is array(natural range <>) of std_logic_vector;
+end package;
 
 -- Uncomment the following library declaration if using
 -- arithmetic functions with Signed or Unsigned values
@@ -233,7 +235,7 @@ begin
                         TRGT_PTR <= TRGT_PTR + 1;
                     end if;
                 when store => ----------------------------------------- STORE ----------------------------
-                    if not STORE_BUSY then
+                    if STORE_COMPLETE then
                         state <= block_setup;       
                     end if ;
                 when complete => -------------------------------------- COMPLETE -------------------------
@@ -242,6 +244,5 @@ begin
     end process;
 
     PL_READ_addr <= (31 downto 28 => "1010", log_ram_depth + log_word_width - 1 downto log_word_width => READ_INT_ADDR, others => '0');
-    PL_WRITE_addr <= (31 downto 28 => "1011", log_ram_depth + log_word_width - 1 downto log_word_width => WRITE_INT_ADDR, others => '0');
 
 end RTL;
