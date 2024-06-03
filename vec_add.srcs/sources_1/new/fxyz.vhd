@@ -91,8 +91,8 @@ end component;
     signal FX_IN, FY_IN, FZ_IN : std_logic_vector(float_width - 1 downto 0);
     signal FX_OUT, FY_OUT, FZ_OUT : std_logic_vector(float_width - 1 downto 0);
 
-    signal FLUSH_CTR : integer range 0 to fma_latency := fma_latency;
-    signal SCTTR_CTR : integer range 0 to fma_latency - 1 := 0;
+    signal FLUSH_CNT : integer range 0 to fma_latency := fma_latency;
+    signal SCTTR_CNT : integer range 0 to fma_latency - 1 := 0;
 
     signal FLUSH_ACTV : std_logic := '0';
     signal SCTTR_ACTV : std_logic := '0';
@@ -136,15 +136,15 @@ begin
     begin
         if rising_edge(aclk) then
             if not VALID_FMA  then
-                FLUSH_CTR <= fma_latency;
-            elsif FLUSH_CTR /= 0 then
-                FLUSH_CTR <= FLUSH_CTR - 1;
+                FLUSH_CNT <= fma_latency;
+            elsif FLUSH_CNT /= 0 then
+                FLUSH_CNT <= FLUSH_CNT - 1;
             end if;
         end if;
     end process;
 
     -- fma third term is 0.0 for flushing the effects of the previous pipeline when new cycle is present
-    FLUSH_ACTV <= (not VALID_FMA) or (FLUSH_CTR/=0);
+    FLUSH_ACTV <= (not VALID_FMA) or (FLUSH_CNT /= 0);
     FX_IN <= (others => '0') when FLUSH_ACTV else FX_OUT;
     FY_IN <= (others => '0') when FLUSH_ACTV else FY_OUT;
     FZ_IN <= (others => '0') when FLUSH_ACTV else FZ_OUT;
@@ -153,10 +153,10 @@ begin
     begin
         if rising_edge(aclk) then
             if SCTTR_ACTV then
-                if SCTTR_CTR = fma_latency - 1 then
-                    SCTTR_CTR <= 0;
+                if SCTTR_CNT = fma_latency - 1 then
+                    SCTTR_CNT <= 0;
                 else
-                    SCTTR_CTR <= SCTTR_CTR + 1;
+                    SCTTR_CNT <= SCTTR_CNT + 1;
                 end if ;
             end if ;    
         end if ;
@@ -169,20 +169,20 @@ begin
         end if ;
     end process;
 
-    SCTTR_ACTV <= ((not VALID_FMA) and VALID_FMA_PREV and SCTTR_CTR=0) or (SCTTR_CTR/=0);
+    SCTTR_ACTV <= ((not VALID_FMA) and VALID_FMA_PREV and SCTTR_CNT = 0) or (SCTTR_CNT /= 0);
     
     process(aclk)
     begin
         if rising_edge(aclk) then
             if SCTTR_ACTV then
                 if VALID_FX then    -- since VALID_FX=VALID_FY=VALID_FZ
-                    results(SCTTR_CTR) <= FX_OUT;
-                    results(SCTTR_CTR + fma_latency) <= FY_OUT;
-                    results(SCTTR_CTR + 2*fma_latency) <= FZ_OUT;
+                    results(SCTTR_CNT) <= FX_OUT;
+                    results(SCTTR_CNT + fma_latency) <= FY_OUT;
+                    results(SCTTR_CNT + 2*fma_latency) <= FZ_OUT;
                 else
-                    results(SCTTR_CTR) <= (others => '0');
-                    results(SCTTR_CTR + fma_latency) <= (others => '0');
-                    results(SCTTR_CTR + 2*fma_latency) <= (others => '0');
+                    results(SCTTR_CNT) <= (others => '0');
+                    results(SCTTR_CNT + fma_latency) <= (others => '0');
+                    results(SCTTR_CNT + 2*fma_latency) <= (others => '0');
                 end if ;
             end if ;
         end if ;
@@ -193,7 +193,7 @@ begin
         process(aclk)
         begin
             if rising_edge(aclk) then
-                if SCTTR_CTR = fma_latency - 1 then
+                if SCTTR_CNT = fma_latency - 1 then
                     scatter_complete <= '1';
                 else
                     scatter_complete <= '0';
@@ -204,7 +204,7 @@ begin
         process(aclk)
         begin
             if rising_edge(aclk) then
-                if SCTTR_CTR = fma_latency - 1 then
+                if SCTTR_CNT = fma_latency - 1 then
                     fma_busy <= '0';
                 elsif valid_in then
                     fma_busy <= '1';

@@ -64,13 +64,16 @@ architecture RTL of compute_store is
 
     signal ZERO_PTR : std_logic_vector(log_ram_depth - 1 downto 0) := (others => '0');
     signal BASE_PTR : std_logic_vector(log_ram_depth - 1 downto 0) := (0 => '1', others => '0');
-    signal STORE_PTR : std_logic_vector(log_ram_depth - 1 downto 0) := BASE_PTR;
+    signal STORE_PTR : std_logic_vector(log_ram_depth - 1 downto 0) := ZERO_PTR;
 
     signal FMA_RES : bus_array(0 to 3*fma_latency*num_blocks - 1)(float_width - 1 downto 0);
     signal FMA_RES_CUR : std_logic_vector(float_width - 1 downto 0);
     signal BUFF_SUM : std_logic_vector(float_width - 1 downto 0);
-    signal BLOCK_BUSY : std_logic := '1';
+    signal FMA_BUSY : std_logic := '1';
     signal SCATTER_COMPLETE : std_logic := '0';
+
+    signal block_iter : integer range 0 to num_blocks - 1 := 0;
+    signal dim_iter : integer range 0 to 2 := 0;
 
 begin
 
@@ -80,7 +83,7 @@ begin
         FIRST_BLOCK: if I = 0 generate
             BLOCK_1 : entity work.fxyz
             generic map(I, float_width, fractional, rsqrt_latency, add_latency, mult_latency. fma_latency, add_final_latency)
-            port map(aclk, valid_in, x_this(I), x_target, y_this(I), y_target, z_this(I), z_target, RESULTS(3*fma_latency*I to 3*fma_latency*(I + 1) - 1), BLOCK_BUSY, SCATTER_COMPLETE);
+            port map(aclk, valid_in, x_this(I), x_target, y_this(I), y_target, z_this(I), z_target, RESULTS(3*fma_latency*I to 3*fma_latency*(I + 1) - 1), FMA_BUSY, SCATTER_COMPLETE);
         end generate FIRST_BLOCK;
 
         REST_BLOCKS: if I > 0 generate
@@ -96,6 +99,59 @@ begin
         generic map()
         port map();
     */
+
+    process(aclk)
+    begin
+        if rising_edge(aclk) then
+            if FMA_BUSY or SCATTER_COMPLETE or WRITE_ONGOING then
+                store_busy <= '1';
+            else
+                store_busy <= '0';
+            end if ;
+        end if ;
+    end process;
+
+    process(aclk)
+    begin
+        if rising_edge(aclk) then
+            if SCATTER_COMPLETE then
+                WRITE_ONGOING <= '1';
+            else
+                if WRITE_ONGOING then
+                end if ;
+            end if ;
+        end if ;
+    end process;
+    
+    process(aclk)
+    begin
+    end process;
+
+    process(aclk)
+    begin
+        if rising_edge(aclk) then
+            if WRITE_ONGOING and dim_iter = 2 then
+                if block_iter = num_blocks - 1 then
+                    block_iter <= 0;
+                else
+                    block_iter <= block_iter + 1;
+                end if ;                
+            end if ;
+        end if ;
+    end process;
+
+    process(aclk)
+    begin
+        if rising_edge(aclk) then
+            if WRITE_ONGOING then
+                if dim_iter = 2 then
+                    dim_iter <= 0;
+                else
+                    dim_iter <= dim_iter + 1;
+                end if ;                
+            end if ;
+        end if ;
+    end process;
 
 
     write_addr <= (31 downto 28 => "1011", log_ram_depth + log_word_width - 1 downto log_word_width => STORE_PTR, others => '0');
