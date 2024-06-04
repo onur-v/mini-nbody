@@ -22,7 +22,7 @@ library IEEE;
 use IEEE.std_logic_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
 
-use work.bus_array_pkg.all;
+use work.subprograms_types_pkg.all;
 
 -- Uncomment the following library declaration if using
 -- arithmetic functions with Signed or Unsigned values
@@ -41,8 +41,8 @@ entity compute_store is
             fma_latency : integer := 16;
             add_final_latency : integer := 11;
             num_blocks : integer := 5;
-            log_ram_depth : positive := 14; -- log2(16384) -- total BRAM 262144 bytes
             log_word_width : positive := 4); -- log2(128(bits)/8(bits)) --automate this
+                log_ram_depth : positive := 14; -- log2(16384) -- total BRAM 262144 bytes
     port   (aclk : in std_logic;
             valid_in : in std_logic;
             x_this : in  bus_array(0 to num_blocks - 1)(float_width - 1 downto 0);
@@ -72,9 +72,11 @@ architecture RTL of compute_store is
     signal FMA_BUSY : std_logic := '1';
     signal SCATTER_COMPLETE : std_logic := '0';
 
-    signal block_iter : integer range 0 to num_blocks - 1 := 0;
-    signal dim_iter : integer range 0 to 2 := 0;
+    signal block_iter_add : integer range 0 to num_blocks - 1 := 0;
+    signal dim_iter_add : integer range 0 to 2 := 0;
 
+    signal block_iter_store : integer range 0 to num_blocks - 1 := 0;
+    signal dim_iter_store : integer range 0 to 2 := 0;
 begin
 
 
@@ -116,25 +118,20 @@ begin
         if rising_edge(aclk) then
             if SCATTER_COMPLETE then
                 WRITE_ONGOING <= '1';
-            else
-                if WRITE_ONGOING then
-                end if ;
+            elsif STORE_COMPLETE
+                WRITE_ONGOING <= '0';
             end if ;
         end if ;
     end process;
     
     process(aclk)
     begin
-    end process;
-
-    process(aclk)
-    begin
         if rising_edge(aclk) then
-            if WRITE_ONGOING and dim_iter = 2 then
-                if block_iter = num_blocks - 1 then
-                    block_iter <= 0;
+            if dim_iter_add = 2 then
+                if block_iter_add = num_blocks - 1 then
+                    block_iter_add <= 0;
                 else
-                    block_iter <= block_iter + 1;
+                    block_iter_add <= block_iter_add + 1;
                 end if ;                
             end if ;
         end if ;
@@ -143,11 +140,11 @@ begin
     process(aclk)
     begin
         if rising_edge(aclk) then
-            if WRITE_ONGOING then
-                if dim_iter = 2 then
-                    dim_iter <= 0;
+            if SCATTER_COMPLETE or dim_iter_add /= 0 or block_iter_add /= 0 then
+                if dim_iter_add = 2 then
+                    dim_iter_add <= 0;
                 else
-                    dim_iter <= dim_iter + 1;
+                    dim_iter_add <= dim_iter_add + 1;
                 end if ;                
             end if ;
         end if ;

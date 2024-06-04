@@ -31,7 +31,7 @@ use IEEE.NUMERIC_STD.ALL;
 --library UNISIM;
 --use UNISIM.VComponents.all;
 
-use work.bus_array_pkg.all;
+use work.subprograms_types_pkg.all;
 
 entity fxyz is
     generic(thread_idx : integer := 0;

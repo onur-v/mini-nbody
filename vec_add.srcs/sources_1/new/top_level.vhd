@@ -23,17 +23,23 @@ library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
 
-package bus_array_pkg is
-        type bus_array is array(natural range <>) of std_logic_vector;
+package subprograms_types_pkg is
+    type bus_array is array(natural range <>) of std_logic_vector;
+    function ceil_log2(input: positive) return natural;
 end package;
 
--- Uncomment the following library declaration if using
--- arithmetic functions with Signed or Unsigned values
+package body subprograms_types_pkg is
+    function ceil_log2(input: positive) return natural is
+        variable result: natural := 0;
+    begin
+        while 2**result < input loop
+            result := result + 1;
+        end loop;
+        return result;
+    end function ceil_log2;
+end package body;
 
--- Uncomment the following library declaration if instantiating
--- any Xilinx leaf cells in this code.
---library UNISIM;
---use UNISIM.VComponents.all;
+-- Begin top_level
 
 entity top_level is
     port   (aclk : in std_logic);
@@ -68,8 +74,8 @@ end component ps_pl;
     constant fma_latency : integer := 16;
 
     constant num_blocks : positive := 10;
-    constant log_ram_depth : positive := 14; -- log2(16384) -- total BRAM 262144 bytes
-    constant log_word_width : positive := 4; -- log2(128(bits)/8(bits)) --automate this
+    constant log_ram_depth : positive := 14; -- ceil_log2(16384) -- total BRAM 262144 bytes
+    constant log_word_width : positive := 4; -- ceil_log2(4*float_width(bits)/8(bits)) --automate this
 
     type points is array (natural range <>) of std_logic_vector(float_width - 1 downto 0);
     type machine is (waiting, block_setup, compute, store, complete); 
