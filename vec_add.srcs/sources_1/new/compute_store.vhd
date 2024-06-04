@@ -41,8 +41,8 @@ entity compute_store is
             fma_latency : integer := 16;
             add_final_latency : integer := 11;
             num_blocks : integer := 5;
-            log_word_width : positive := 4); -- log2(128(bits)/8(bits)) --automate this
-                log_ram_depth : positive := 14; -- log2(16384) -- total BRAM 262144 bytes
+            log_ram_depth : positive := 14; -- ceil_log2(16384) -- total BRAM 262144 bytes, 16384 words
+            log_word_width : positive := 4); -- ceil_log2(4*float_width/8) --automate this
     port   (aclk : in std_logic;
             valid_in : in std_logic;
             x_this : in  bus_array(0 to num_blocks - 1)(float_width - 1 downto 0);
@@ -62,6 +62,15 @@ end compute_store;
 
 architecture RTL of compute_store is
 
+    constant add_pipeline_latency : integer := ceil_log2(positive(fma_latency)) * add_final_latency;
+    
+    signal gather_iter : integer range 0 to add_pipeline_latency := add_pipeline_latency;
+
+    signal block_iter_add : integer range 0 to num_blocks - 1 := 0;
+    signal dim_iter_add : integer range 0 to 2 := 0;
+    signal block_iter_store : integer range 0 to num_blocks - 1 := 0;
+    signal dim_iter_store : integer range 0 to 2 := 0;
+
     signal ZERO_PTR : std_logic_vector(log_ram_depth - 1 downto 0) := (others => '0');
     signal BASE_PTR : std_logic_vector(log_ram_depth - 1 downto 0) := (0 => '1', others => '0');
     signal STORE_PTR : std_logic_vector(log_ram_depth - 1 downto 0) := ZERO_PTR;
@@ -72,11 +81,6 @@ architecture RTL of compute_store is
     signal FMA_BUSY : std_logic := '1';
     signal SCATTER_COMPLETE : std_logic := '0';
 
-    signal block_iter_add : integer range 0 to num_blocks - 1 := 0;
-    signal dim_iter_add : integer range 0 to 2 := 0;
-
-    signal block_iter_store : integer range 0 to num_blocks - 1 := 0;
-    signal dim_iter_store : integer range 0 to 2 := 0;
 begin
 
 
@@ -118,10 +122,10 @@ begin
         if rising_edge(aclk) then
             if SCATTER_COMPLETE then
                 WRITE_ONGOING <= '1';
-            elsif STORE_COMPLETE
+            elsif STORE_COMPLETE then
                 WRITE_ONGOING <= '0';
-            end if ;
-        end if ;
+            end if;
+        end if;
     end process;
     
     process(aclk)
@@ -150,8 +154,64 @@ begin
         end if ;
     end process;
 
+    process(aclk)
+    begin
+        if rising_edge(aclk) then
+            if SCATTER_COMPLETE then
+                gather_iter <= gather_iter - 1;
+            elsif gather_iter /= 0 then
+                gather_iter <= gather_iter - 1;
+            else
+                gather_iter <= add_pipeline_latency + 1;
+            end if ;
+        end if ;
+    end process;
 
+    process(aclk)
+    begin
+        if rising_edge(aclk) then
+            if dim_iter_store = 2 then
+                if block_iter_store = num_blocks - 1 then
+                    block_iter_store <= 0;
+                else
+                    block_iter_store <= block_iter_store + 1;
+                end if ;                
+            end if ;
+        end if ;
+    end process;
+
+    process(aclk)
+    begin
+        if rising_edge(aclk) then
+            if gather_iter = 0 or dim_iter_store /= 0 or block_iter_store /= 0 then
+                if dim_iter_store = 2 then
+                    dim_iter_store <= 0;
+                else
+                    dim_iter_store <= dim_iter_store + 1;
+                end if ;                
+                STORE_COMPLETE <= 0;
+            else
+                STORE_COMPLETE <= 1;
+            end if ;
+        end if ;
+    end process;
+
+    process(aclk)
+    begin
+        if rising_edge(aclk) then
+            if gather_iter = 0 or dim_iter_store /= 0 or block_iter_store /= 0 then
+                if mask(block_iter_store) then
+                    write_we <= '1';
+                else
+                    write_we <= '0';
+                end if ;
+            else
+                write_we <= '0';
+            end if ;
+        end if ;
+    end process;
+
+    write_en <= '1';
     write_addr <= (31 downto 28 => "1011", log_ram_depth + log_word_width - 1 downto log_word_width => STORE_PTR, others => '0');
-
 
 end RTL;
