@@ -25,6 +25,8 @@ use IEEE.NUMERIC_STD.ALL;
 
 package subprograms_types_pkg is
     type bus_array is array(natural range <>) of std_logic_vector;
+    type mock_adder is (zero, translate, real_add);
+    
     function ceil_log2(input: positive) return natural;
 end package;
 
