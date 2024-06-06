@@ -20,17 +20,9 @@
 
 
 library IEEE;
+library work;
 use IEEE.std_logic_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
-
--- Uncomment the following library declaration if using
--- arithmetic functions with Signed or Unsigned values
-
--- Uncomment the following library declaration if instantiating
--- any Xilinx leaf cells in this code.
---library UNISIM;
---use UNISIM.VComponents.all;
-
 use work.subprograms_types_pkg.all;
 
 entity fxyz is
@@ -144,7 +136,7 @@ begin
     end process;
 
     -- fma third term is 0.0 for flushing the effects of the previous pipeline when new cycle is present
-    FLUSH_ACTV <= (not VALID_FMA) or (FLUSH_CNT /= 0);
+    FLUSH_ACTV <= '1' when (VALID_FMA = '0') or (FLUSH_CNT /= 0) else '0';
     FX_IN <= (others => '0') when FLUSH_ACTV else FX_OUT;
     FY_IN <= (others => '0') when FLUSH_ACTV else FY_OUT;
     FZ_IN <= (others => '0') when FLUSH_ACTV else FZ_OUT;
@@ -169,7 +161,7 @@ begin
         end if ;
     end process;
 
-    SCTTR_ACTV <= ((not VALID_FMA) and VALID_FMA_PREV and SCTTR_CNT = 0) or (SCTTR_CNT /= 0);
+    SCTTR_ACTV <= '1' when ((VALID_FMA = '0') and (VALID_FMA_PREV = '1') and SCTTR_CNT = 0) or (SCTTR_CNT /= 0) else '0';
     
     process(aclk)
     begin

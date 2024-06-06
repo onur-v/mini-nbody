@@ -20,27 +20,10 @@
 
 
 library IEEE;
+library work;
 use IEEE.std_logic_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
-
-package subprograms_types_pkg is
-    type bus_array is array(natural range <>) of std_logic_vector;
-    type mock_adder is (zero, translate, real_add);
-    
-    function ceil_log2(input: positive) return natural;
-end package;
-
-package body subprograms_types_pkg is
-    function ceil_log2(input: positive) return natural is
-        variable result: natural := 0;
-    begin
-        while 2**result < input loop
-            result := result + 1;
-        end loop;
-        return result;
-    end function ceil_log2;
-end package body;
-
+use work.subprograms_types_pkg.all;
 -- Begin top_level
 
 entity top_level is
@@ -49,24 +32,6 @@ end top_level;
 
 architecture RTL of top_level is
 
-component ps_pl is
-    port (
-      PL_READ_addr : in std_logic_vector ( 31 downto 0 );
-      PL_READ_clk : in std_logic;
-      PL_READ_din : in std_logic_vector ( 4*float_width - 1 downto 0 );
-      PL_READ_dout : out std_logic_vector ( 4*float_width - 1 downto 0 );
-      PL_READ_en : in std_logic;
-      PL_READ_rst : in std_logic;
-      PL_READ_we : in std_logic_vector ( 15 downto 0 );
-      PL_WRITE_addr : in std_logic_vector ( 31 downto 0 );
-      PL_WRITE_clk : in std_logic;
-      PL_WRITE_din : in std_logic_vector ( 4*float_width - 1 downto 0 );
-      PL_WRITE_dout : out std_logic_vector ( 4*float_width - 1 downto 0 );
-      PL_WRITE_en : in std_logic;
-      PL_WRITE_rst : in std_logic;
-      PL_WRITE_we : in std_logic_vector ( 15 downto 0 )
-    );
-end component ps_pl;
 
     constant float_width : integer := 32;
     constant fractional : integer := 24;
@@ -76,25 +41,27 @@ end component ps_pl;
     constant fma_latency : integer := 16;
 
     constant num_blocks : positive := 10;
-    constant log_ram_depth : positive := 14; -- ceil_log2(16384) -- total BRAM 262144 bytes
-    constant log_word_width : positive := 4; -- ceil_log2(4*float_width(bits)/8(bits)) --automate this
+    constant ram_depth : natural := 16384;
+    constant log_ram_depth : natural := ceil_log2(ram_depth); -- ceil_log2(16384) -- total BRAM 262144 bytes
+    constant log_word_width : natural := ceil_log2(float_width/2); -- ceil_log2(4*float_width(bits)/8(bits)) --automate this
 
     type points is array (natural range <>) of std_logic_vector(float_width - 1 downto 0);
     type machine is (waiting, block_setup, compute, store, complete); 
     signal state : machine := waiting; 
 
-    signal READ_INT_ADDR, WRITE_INT_ADDR : unsigned(log_ram_depth - 1 downto 0);
+    signal READ_INT_ADDR, WRITE_INT_ADDR : std_logic_vector(log_ram_depth - 1 downto 0);
     signal BASE_PTR : unsigned(log_ram_depth - 1 downto 0) := (0 => '1', others => '0'); -- base ptr, simply 1
     signal THIS_PTR, THIS_PTR_PREV, THIS_PTR_PREV_2 : unsigned(log_ram_depth - 1 downto 0);
     signal TRGT_PTR, TRGT_PTR_PREV, TRGT_PTR_PREV_2 : unsigned(log_ram_depth - 1 downto 0);
     signal WRITE_PTR, WRITE_PTR_PREV, WRITE_PTR_PREV_2 : unsigned(log_ram_depth - 1 downto 0);
 
     signal block_cnt, blck_cnt_prv, blck_cnt_prv_2 : natural range 0 to num_blocks + 1 := 0;
-    signal target_cnt : unsigned(log_ram_depth - 1 downto 0) := 0;
+    signal target_cnt : natural range 0 to ram_depth - 1 := 0;
+    signal complete_cnt : natural range 0 to 3 := 0;
 
     signal PL_READ_addr : std_logic_vector ( 31 downto 0 );
     signal PL_READ_clk : std_logic;
-    signal PL_READ_din : std_logic_vector ( 4*float_width - 1 downto 0 );
+    signal PL_READ_din : std_logic_vector ( 4*float_width - 1 downto 0 ) := (others => '0'); -- write 0 when complete
     signal PL_READ_dout : std_logic_vector ( 4*float_width - 1 downto 0 );
     signal PL_READ_en : std_logic := '1';
     signal PL_READ_rst : std_logic;
@@ -110,14 +77,34 @@ end component ps_pl;
     signal BS_ACTV : std_logic := '0';
     signal COMP_ACTV : std_logic := '0';
 
-    signal THIS : points(0 to 3*num_blocks - 1);
+    signal X_THIS, Y_THIS, Z_THIS : points(0 to num_blocks - 1);
     signal WRITE_MASK : std_logic_vector(0 to num_blocks - 1);
     signal TRGT : points(0 to 2);
 
     signal NUM_PTS : unsigned(log_ram_depth - 1 downto 0);
     signal BEGIN_SIGNAL : std_logic := '0';
-    signal BUFF : std_logic_vector(4*float_width - 1 downto 0);
-    signal P1_WRE, P2_WRE : std_logic := '0';
+
+    signal STORE_BUSY : std_logic := '0';
+    signal RESET_STORE : std_logic := '0';
+
+component ps_pl is
+    port (
+      PL_READ_addr : in std_logic_vector ( 31 downto 0 );
+      PL_READ_clk : in std_logic;
+      PL_READ_din : in std_logic_vector ( 4*float_width - 1 downto 0 );
+      PL_READ_dout : out std_logic_vector ( 4*float_width - 1 downto 0 );
+      PL_READ_en : in std_logic;
+      PL_READ_rst : in std_logic;
+      PL_READ_we : in std_logic_vector ( float_width/2 - 1 downto 0 );
+      PL_WRITE_addr : in std_logic_vector ( 31 downto 0 );
+      PL_WRITE_clk : in std_logic;
+      PL_WRITE_din : in std_logic_vector ( 4*float_width - 1 downto 0 );
+      PL_WRITE_dout : out std_logic_vector ( 4*float_width - 1 downto 0 );
+      PL_WRITE_en : in std_logic;
+      PL_WRITE_rst : in std_logic;
+      PL_WRITE_we : in std_logic_vector ( float_width/2 - 1 downto 0 )
+    );
+end component ps_pl;
 
 begin
 
@@ -184,12 +171,12 @@ begin
                         else
                             WRITE_MASK(blck_cnt_prv_2) <= '1';
                         end if ;
-                        THIS(3*(blck_cnt_prv_2)) <= PL_READ_dout(float_width - 1 downto 0);
-                        THIS(3*(blck_cnt_prv_2) + 1) <= PL_READ_dout(2*float_width - 1 downto float_width);
-                        THIS(3*(blck_cnt_prv_2) + 2) <= PL_READ_dout(3*float_width - 1 downto 2*float_width);
+                        X_THIS(blck_cnt_prv_2) <= PL_READ_dout(float_width - 1 downto 0);
+                        Y_THIS(blck_cnt_prv_2) <= PL_READ_dout(2*float_width - 1 downto float_width);
+                        Z_THIS(blck_cnt_prv_2) <= PL_READ_dout(3*float_width - 1 downto 2*float_width);
                         state <= compute;
-                        TARGET_PTR <= BASE_PTR;
-                        target_cnt <= to_unsigned(0, log_ram_depth);
+                        TRGT_PTR <= BASE_PTR;
+                        target_cnt <= 0;
                         block_cnt <= 0;
                     elsif block_cnt = num_blocks then -- skipped if num_blocks = 1 (does the compiler recognize and eliminate?)
                         if THIS_PTR_PREV_2 > NUM_PTS then
@@ -197,9 +184,9 @@ begin
                         else
                             WRITE_MASK(blck_cnt_prv_2) <= '1';
                         end if ;
-                        THIS(3*(blck_cnt_prv_2)) <= PL_READ_dout(float_width - 1 downto 0);
-                        THIS(3*(blck_cnt_prv_2) + 1) <= PL_READ_dout(2*float_width - 1 downto float_width);
-                        THIS(3*(blck_cnt_prv_2) + 2) <= PL_READ_dout(3*float_width - 1 downto 2*float_width);
+                        X_THIS(blck_cnt_prv_2) <= PL_READ_dout(float_width - 1 downto 0);
+                        Y_THIS(blck_cnt_prv_2) <= PL_READ_dout(2*float_width - 1 downto float_width);
+                        Z_THIS(blck_cnt_prv_2) <= PL_READ_dout(3*float_width - 1 downto 2*float_width);
                         block_cnt <= block_cnt + 1;
                     else
                         if THIS_PTR_PREV_2 > NUM_PTS then
@@ -207,19 +194,19 @@ begin
                         else
                             WRITE_MASK(blck_cnt_prv_2) <= '1';
                         end if ;
-                        THIS(3*(blck_cnt_prv_2)) <= PL_READ_dout(float_width - 1 downto 0);
-                        THIS(3*(blck_cnt_prv_2) + 1) <= PL_READ_dout(2*float_width - 1 downto float_width);
-                        THIS(3*(blck_cnt_prv_2) + 2) <= PL_READ_dout(3*float_width - 1 downto 2*float_width);
+                        X_THIS(blck_cnt_prv_2) <= PL_READ_dout(float_width - 1 downto 0);
+                        Y_THIS(blck_cnt_prv_2) <= PL_READ_dout(2*float_width - 1 downto float_width);
+                        Z_THIS(blck_cnt_prv_2) <= PL_READ_dout(3*float_width - 1 downto 2*float_width);
                         THIS_PTR <= THIS_PTR + 1;
                         READ_INT_ADDR <= std_logic_vector(THIS_PTR);
                         block_cnt <= block_cnt + 1;
                     end if ;
                 when compute => --------------------------------------- COMPUTE --------------------------
-                    if target_cnt = to_unsigned(0, log_ram_depth) then
+                    if target_cnt = 0 then
                         READ_INT_ADDR <= std_logic_vector(TRGT_PTR);
                         TRGT_PTR <= TRGT_PTR + 1;
                         target_cnt <= target_cnt + 1;
-                    elsif target_cnt = to_unsigned(1, log_ram_depth) then
+                    elsif target_cnt = 1 then
                         READ_INT_ADDR <= std_logic_vector(TRGT_PTR);
                         TRGT_PTR <= TRGT_PTR + 1;
                         target_cnt <= target_cnt + 1;
@@ -227,24 +214,35 @@ begin
                         target_cnt <= target_cnt + 1;
                     elsif target_cnt = NUM_PTS + 1 then
                         target_cnt <= target_cnt + 1;
-                        TARGET_PTR <= BASE_PTR;
+                        TRGT_PTR <= BASE_PTR;
                     elsif target_cnt = NUM_PTS + 2 then -- stop computation by changing valid flag
                         state <= store;
                         TRGT_PTR <= TRGT_PTR + 1;
-                        target_cnt <= (others => '0');
+                        target_cnt <= 0;
                     else
                         TRGT_PTR <= TRGT_PTR + 1;
                     end if;
                 when store => ----------------------------------------- STORE ----------------------------
-                    if STORE_COMPLETE then
+                    if STORE_BUSY = '0' then
                         state <= block_setup;       
                     end if ;
                 when complete => -------------------------------------- COMPLETE -------------------------
+                    if complete_cnt = 0 then
+                        PL_READ_we <= (others => '1');
+                        READ_INT_ADDR <= (others => '0');
+                        complete_cnt <= complete_cnt + 1;
+                    elsif complete_cnt = 3 then
+                        state <= waiting;
+                        complete_cnt <= 0;
+                    else
+                        PL_READ_we <= (others => '0');
+                        complete_cnt <= complete_cnt + 1;
+                    end if;
             end case;
         end if;
     end process;
 
-    PL_READ_addr <= (31 downto 28 => "1010", log_ram_depth + log_word_width - 1 downto log_word_width => READ_INT_ADDR, others => '0');
+    PL_READ_addr <= "1010" & (27 downto log_ram_depth + log_word_width => '0') & (log_ram_depth + log_word_width - 1 downto log_word_width => READ_INT_ADDR) & (log_word_width - 1 downto 0 => '0');
 
     /*
     CSTORE: entity work.compute_store

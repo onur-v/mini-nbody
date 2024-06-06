@@ -20,15 +20,15 @@
 
 
 library IEEE;
+library work;
 use IEEE.std_logic_1164.ALL;
 use IEEE.numeric_std.ALL;
-
 use work.subprograms_types_pkg.all;
 
 entity adder_choose is
     generic (float_width : integer := 32;
              add_final_latency : integer := 11;
-             adder_type : mock_adder := real_add;);
+             adder_type : mock_adder := real_add);
     Port    (aclk : in std_logic;
              valid1 : in std_logic;
              input1 : in std_logic_vector(float_width - 1 downto 0);
