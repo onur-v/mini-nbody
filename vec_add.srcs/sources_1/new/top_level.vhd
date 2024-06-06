@@ -20,7 +20,7 @@
 
 
 library IEEE;
-use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.std_logic_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
 
 package subprograms_types_pkg is
@@ -51,20 +51,20 @@ architecture RTL of top_level is
 
 component ps_pl is
     port (
-      PL_READ_addr : in STD_LOGIC_VECTOR ( 31 downto 0 );
-      PL_READ_clk : in STD_LOGIC;
-      PL_READ_din : in STD_LOGIC_VECTOR ( 127 downto 0 );
-      PL_READ_dout : out STD_LOGIC_VECTOR ( 127 downto 0 );
-      PL_READ_en : in STD_LOGIC;
-      PL_READ_rst : in STD_LOGIC;
-      PL_READ_we : in STD_LOGIC_VECTOR ( 15 downto 0 );
-      PL_WRITE_addr : in STD_LOGIC_VECTOR ( 31 downto 0 );
-      PL_WRITE_clk : in STD_LOGIC;
-      PL_WRITE_din : in STD_LOGIC_VECTOR ( 127 downto 0 );
-      PL_WRITE_dout : out STD_LOGIC_VECTOR ( 127 downto 0 );
-      PL_WRITE_en : in STD_LOGIC;
-      PL_WRITE_rst : in STD_LOGIC;
-      PL_WRITE_we : in STD_LOGIC_VECTOR ( 15 downto 0 )
+      PL_READ_addr : in std_logic_vector ( 31 downto 0 );
+      PL_READ_clk : in std_logic;
+      PL_READ_din : in std_logic_vector ( 4*float_width - 1 downto 0 );
+      PL_READ_dout : out std_logic_vector ( 4*float_width - 1 downto 0 );
+      PL_READ_en : in std_logic;
+      PL_READ_rst : in std_logic;
+      PL_READ_we : in std_logic_vector ( 15 downto 0 );
+      PL_WRITE_addr : in std_logic_vector ( 31 downto 0 );
+      PL_WRITE_clk : in std_logic;
+      PL_WRITE_din : in std_logic_vector ( 4*float_width - 1 downto 0 );
+      PL_WRITE_dout : out std_logic_vector ( 4*float_width - 1 downto 0 );
+      PL_WRITE_en : in std_logic;
+      PL_WRITE_rst : in std_logic;
+      PL_WRITE_we : in std_logic_vector ( 15 downto 0 )
     );
 end component ps_pl;
 
@@ -92,20 +92,20 @@ end component ps_pl;
     signal block_cnt, blck_cnt_prv, blck_cnt_prv_2 : natural range 0 to num_blocks + 1 := 0;
     signal target_cnt : unsigned(log_ram_depth - 1 downto 0) := 0;
 
-    signal PL_READ_addr : STD_LOGIC_VECTOR ( 31 downto 0 );
-    signal PL_READ_clk : STD_LOGIC;
-    signal PL_READ_din : STD_LOGIC_VECTOR ( 127 downto 0 );
-    signal PL_READ_dout : STD_LOGIC_VECTOR ( 127 downto 0 );
-    signal PL_READ_en : STD_LOGIC;
-    signal PL_READ_rst : STD_LOGIC;
-    signal PL_READ_we : STD_LOGIC_VECTOR ( 15 downto 0 ) := (others => '0');
-    signal PL_WRITE_addr : STD_LOGIC_VECTOR ( 31 downto 0 );
-    signal PL_WRITE_clk : STD_LOGIC;
-    signal PL_WRITE_din : STD_LOGIC_VECTOR ( 127 downto 0 );
-    signal PL_WRITE_dout : STD_LOGIC_VECTOR ( 127 downto 0 );
-    signal PL_WRITE_en : STD_LOGIC;
-    signal PL_WRITE_rst : STD_LOGIC;
-    signal PL_WRITE_we : STD_LOGIC_VECTOR ( 15 downto 0 );
+    signal PL_READ_addr : std_logic_vector ( 31 downto 0 );
+    signal PL_READ_clk : std_logic;
+    signal PL_READ_din : std_logic_vector ( 4*float_width - 1 downto 0 );
+    signal PL_READ_dout : std_logic_vector ( 4*float_width - 1 downto 0 );
+    signal PL_READ_en : std_logic := '1';
+    signal PL_READ_rst : std_logic;
+    signal PL_READ_we : std_logic_vector ( 15 downto 0 ) := (others => '0');
+    signal PL_WRITE_addr : std_logic_vector ( 31 downto 0 );
+    signal PL_WRITE_clk : std_logic;
+    signal PL_WRITE_din : std_logic_vector ( 4*float_width - 1 downto 0 );
+    signal PL_WRITE_dout : std_logic_vector ( 4*float_width - 1 downto 0 );
+    signal PL_WRITE_en : std_logic := '1';
+    signal PL_WRITE_rst : std_logic;
+    signal PL_WRITE_we : std_logic_vector ( 15 downto 0 ) := (others => '0');
 
     signal BS_ACTV : std_logic := '0';
     signal COMP_ACTV : std_logic := '0';
@@ -116,8 +116,8 @@ end component ps_pl;
 
     signal NUM_PTS : unsigned(log_ram_depth - 1 downto 0);
     signal BEGIN_SIGNAL : std_logic := '0';
-    signal BUFF : std_logic_vector(127 downto 0);
-    signal P1_WR_EN, P2_WR_EN : std_logic := '0';
+    signal BUFF : std_logic_vector(4*float_width - 1 downto 0);
+    signal P1_WRE, P2_WRE : std_logic := '0';
 
 begin
 
@@ -137,6 +137,7 @@ begin
           PL_WRITE_rst,
           PL_WRITE_we);
 
+
     process(aclk)
     begin
         if rising_edge(aclk) then
@@ -152,16 +153,6 @@ begin
     process(aclk)
     begin
         if rising_edge(aclk) then
-            if state = waiting then
-                BEGIN_SIGNAL <= PL_READ_dout(0);
-                NUM_PTS <= unsigned(PL_READ_dout(log_ram_depth + 31 downto 32));
-            end if;
-        end if ;
-    end process;
-
-    process(aclk)
-    begin
-        if rising_edge(aclk) then
             case(state) is
                 when waiting => ---------------------------------------- WAITING -------------------------
                     if BEGIN_SIGNAL then
@@ -169,8 +160,10 @@ begin
                         THIS_PTR <= BASE_PTR;
                         TRGT_PTR <= BASE_PTR;
                         WRITE_PTR <= BASE_PTR;
-                        P1_WR_EN <= '0';
                     end if;
+                    BEGIN_SIGNAL <= PL_READ_dout(0);
+                    NUM_PTS <= unsigned(PL_READ_dout(log_ram_depth + 31 downto 32));
+                    PL_READ_we <= (others => '0');
                 when block_setup => ------------------------------------ BLOCK_SETUP ---------------------
                     if block_cnt = 0 then
                         if(THIS_PTR > NUM_PTS) then
@@ -252,5 +245,11 @@ begin
     end process;
 
     PL_READ_addr <= (31 downto 28 => "1010", log_ram_depth + log_word_width - 1 downto log_word_width => READ_INT_ADDR, others => '0');
+
+    /*
+    CSTORE: entity work.compute_store
+            generic map()
+            port map();
+    */
 
 end RTL;

@@ -1,6 +1,6 @@
 ----------------------------------------------------------------------------------
--- Company: 
--- Engineer: 
+-- Company:    OGEM
+-- Engineer:    Onur Vardar
 -- 
 -- Create Date: 06/04/2024 10:27:14 PM
 -- Design Name: 
@@ -18,26 +18,18 @@
 -- 
 ----------------------------------------------------------------------------------
 
-
 library IEEE;
 use IEEE.std_logic_1164.all;
 use IEEE.numeric_std.all;
 
 use work.subprograms_types_pkg.all;
 
--- Uncomment the following library declaration if using
--- arithmetic functions with Signed or Unsigned values
-
--- Uncomment the following library declaration if instantiating
--- any Xilinx leaf cells in this code.
---library UNISIM;
---use UNISIM.VComponents.all;
-
 entity final_adder is
     generic (float_width : integer := 32;
-             buffer_width : integer := 16;
+             buffer_width : integer := 17;
              add_final_latency : integer := 11);
     port    (aclk : in std_logic;
+             valid_in : in std_logic;
              buff : in bus_array(0 to buffer_width - 1)(float_width - 1 downto 0);
              sum : out std_logic_vector(float_width - 1 downto 0));
 end final_adder;
@@ -84,13 +76,13 @@ architecture RTL of final_adder is
           m_axis_result_tdata : out std_logic_vector(31 downto 0));
     end component;
 
-    --constant
     constant adder_struc : matrix := adder_structure(positive(buffer_width));
     constant log_width : integer := ceil_log2(positive(buffer_width));
     constant fit_width : integer := 2**log_width;
 
     signal int_signals : bus_array(0 to max_buff_depth * (2**max_buff_depth) - 1)(float_width - 1 downto 0);
     signal int_valids : std_logic_vector(0 to max_buff_depth * (2**max_buff_depth) - 1);
+
 begin
 
     G_OUTER : for I in 0 to log_width - 1 generate
@@ -107,5 +99,7 @@ begin
         end generate G_INNER;   
     end generate G_OUTER;
 
+    int_signals(log_width*(2**max_buff_depth) to log_width*(2**max_buff_depth) + buffer_width - 1) <= buff;
+    int_valids(log_width*(2**max_buff_depth) to log_width*(2**max_buff_depth) + buffer_width - 1) <= (others => valid_in);
 
 end RTL;
