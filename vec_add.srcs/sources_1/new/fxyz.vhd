@@ -90,7 +90,19 @@ end component;
     signal SCTTR_ACTV : std_logic := '0';
     signal ADDER_ACTV : std_logic := '0';
 
+    --signal MOCK_INPUT : unsigned(float_width - 1 downto 0) := (others => '0');
+
 begin
+
+    /*
+    process(aclk)
+    begin
+        if rising_edge(aclk) then
+            MOCK_INPUT <= MOCK_INPUT + 1;
+        end if;
+    end process;
+    */
+
 
     STAGE1 : entity work.dxyz_soft
     generic map(float_width, fractional, add_latency, mult_latency, fma_latency)
@@ -106,13 +118,14 @@ begin
     SHR_DXDYDZ(0) <= DXDYDZ;
     
     G1: if shr_depth > 0 generate
-    process(aclk)
-    begin
-        if rising_edge(aclk) then
-            SHR_DXDYDZ(1 to SHR_DXDYDZ'right) <= SHR_DXDYDZ(0 to SHR_DXDYDZ'right - 1);
-        end if;
-    end process;
+        process(aclk)
+        begin
+            if rising_edge(aclk) then
+                SHR_DXDYDZ(1 to SHR_DXDYDZ'right) <= SHR_DXDYDZ(0 to SHR_DXDYDZ'right - 1);
+            end if;
+        end process;
     end generate G1;
+
 
     FORCE_X : fma
     port map(aclk, VALID_FMA, SHR_DXDYDZ(SHR_DXDYDZ'right)(3*float_width - 1 downto 2*float_width), VALID_FMA, INV_DIST3, VALID_FMA, FX_IN, VALID_FX, FX_OUT);
@@ -127,7 +140,7 @@ begin
     process(aclk)
     begin
         if rising_edge(aclk) then
-            if not VALID_FMA  then
+            if VALID_FMA = '0'  then
                 FLUSH_CNT <= fma_latency;
             elsif FLUSH_CNT /= 0 then
                 FLUSH_CNT <= FLUSH_CNT - 1;
@@ -137,14 +150,14 @@ begin
 
     -- fma third term is 0.0 for flushing the effects of the previous pipeline when new cycle is present
     FLUSH_ACTV <= '1' when (VALID_FMA = '0') or (FLUSH_CNT /= 0) else '0';
-    FX_IN <= (others => '0') when FLUSH_ACTV else FX_OUT;
-    FY_IN <= (others => '0') when FLUSH_ACTV else FY_OUT;
-    FZ_IN <= (others => '0') when FLUSH_ACTV else FZ_OUT;
+    FX_IN <= (others => '0') when FLUSH_ACTV = '1' else FX_OUT;
+    FY_IN <= (others => '0') when FLUSH_ACTV = '1' else FY_OUT;
+    FZ_IN <= (others => '0') when FLUSH_ACTV = '1' else FZ_OUT;
 
     process(aclk)
     begin
         if rising_edge(aclk) then
-            if SCTTR_ACTV then
+            if SCTTR_ACTV = '1' then
                 if SCTTR_CNT = fma_latency - 1 then
                     SCTTR_CNT <= 0;
                 else
@@ -166,8 +179,8 @@ begin
     process(aclk)
     begin
         if rising_edge(aclk) then
-            if SCTTR_ACTV then
-                if VALID_FX then    -- since VALID_FX=VALID_FY=VALID_FZ
+            if SCTTR_ACTV = '1' then
+                if VALID_FX = '1' then    -- since VALID_FX=VALID_FY=VALID_FZ
                     results(SCTTR_CNT) <= FX_OUT;
                     results(SCTTR_CNT + fma_latency) <= FY_OUT;
                     results(SCTTR_CNT + 2*fma_latency) <= FZ_OUT;
@@ -180,7 +193,31 @@ begin
         end if ;
     end process;
 
+    -- part to be deleted?
+    process(aclk)
+    begin
+        if rising_edge(aclk) then
+            if SCTTR_CNT = fma_latency - 1 then
+                scatter_complete <= '1';
+            else
+                scatter_complete <= '0';
+            end if ;
+        end if ;
+    end process;
 
+    process(aclk)
+    begin
+        if rising_edge(aclk) then
+            if SCTTR_CNT = fma_latency - 1 then
+                fma_busy <= '0';
+            elsif valid_in then
+                fma_busy <= '1';
+            end if ;
+        end if ;
+    end process;
+
+
+    /*
     GEN_SGN : if thread_idx = 0 generate
         process(aclk)
         begin
@@ -207,5 +244,6 @@ begin
         scatter_complete <= '0';
         fma_busy <= '0';
     end generate GEN_SGN;
+    */
         
 end RTL;

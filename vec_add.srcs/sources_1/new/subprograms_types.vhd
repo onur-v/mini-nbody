@@ -4,6 +4,7 @@ use IEEE.numeric_std.all;
 
 package subprograms_types_pkg is
     type bus_array is array(natural range <>) of std_logic_vector;
+    type bus_matrix is array(natural range <>) of bus_array;
     type mock_adder is (zero, translate, real_add);
     
     function ceil_log2(input: positive) return natural;

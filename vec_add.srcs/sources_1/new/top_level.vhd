@@ -27,7 +27,6 @@ use work.subprograms_types_pkg.all;
 -- Begin top_level
 
 entity top_level is
-    port   (aclk : in std_logic);
 end top_level;
 
 architecture RTL of top_level is
@@ -37,10 +36,11 @@ architecture RTL of top_level is
     constant fractional : integer := 24;
     constant rsqrt_latency : integer := 32;
     constant add_latency : integer := 11;
-    constant mult_latency : integer := 8;
-    constant fma_latency : integer := 16;
+    constant mult_latency : integer := 6;
+    constant fma_latency : integer := 19;
+    constant add_final_latency : integer := 11;
 
-    constant num_blocks : positive := 10;
+    constant num_blocks : positive := 2;
     constant ram_depth : natural := 16384;
     constant log_ram_depth : natural := ceil_log2(ram_depth); -- ceil_log2(16384) -- total BRAM 262144 bytes
     constant log_word_width : natural := ceil_log2(float_width/2); -- ceil_log2(4*float_width(bits)/8(bits)) --automate this
@@ -52,7 +52,7 @@ architecture RTL of top_level is
     signal READ_INT_ADDR, WRITE_INT_ADDR : std_logic_vector(log_ram_depth - 1 downto 0);
     signal BASE_PTR : unsigned(log_ram_depth - 1 downto 0) := (0 => '1', others => '0'); -- base ptr, simply 1
     signal THIS_PTR, THIS_PTR_PREV, THIS_PTR_PREV_2 : unsigned(log_ram_depth - 1 downto 0);
-    signal TRGT_PTR, TRGT_PTR_PREV, TRGT_PTR_PREV_2 : unsigned(log_ram_depth - 1 downto 0);
+    signal TRGT_PTR : unsigned(log_ram_depth - 1 downto 0);
     signal WRITE_PTR, WRITE_PTR_PREV, WRITE_PTR_PREV_2 : unsigned(log_ram_depth - 1 downto 0);
 
     signal block_cnt, blck_cnt_prv, blck_cnt_prv_2 : natural range 0 to num_blocks + 1 := 0;
@@ -65,27 +65,29 @@ architecture RTL of top_level is
     signal PL_READ_dout : std_logic_vector ( 4*float_width - 1 downto 0 );
     signal PL_READ_en : std_logic := '1';
     signal PL_READ_rst : std_logic;
-    signal PL_READ_we : std_logic_vector ( 15 downto 0 ) := (others => '0');
+    signal PL_READ_we : std_logic_vector ( float_width/2 - 1 downto 0 ) := (others => '0');
     signal PL_WRITE_addr : std_logic_vector ( 31 downto 0 );
     signal PL_WRITE_clk : std_logic;
     signal PL_WRITE_din : std_logic_vector ( 4*float_width - 1 downto 0 );
     signal PL_WRITE_dout : std_logic_vector ( 4*float_width - 1 downto 0 );
     signal PL_WRITE_en : std_logic := '1';
     signal PL_WRITE_rst : std_logic;
-    signal PL_WRITE_we : std_logic_vector ( 15 downto 0 ) := (others => '0');
+    signal PL_WRITE_we : std_logic_vector ( float_width/2 - 1 downto 0 ) := (others => '0');
 
     signal BS_ACTV : std_logic := '0';
     signal COMP_ACTV : std_logic := '0';
 
-    signal X_THIS, Y_THIS, Z_THIS : points(0 to num_blocks - 1);
+    signal X_THIS, Y_THIS, Z_THIS : bus_array(0 to num_blocks - 1)(float_width - 1 downto 0);
     signal WRITE_MASK : std_logic_vector(0 to num_blocks - 1);
     signal TRGT : points(0 to 2);
+    signal TRGT_VALID : std_logic := '0';
 
     signal NUM_PTS : unsigned(log_ram_depth - 1 downto 0);
     signal BEGIN_SIGNAL : std_logic := '0';
 
     signal STORE_BUSY : std_logic := '0';
     signal RESET_STORE : std_logic := '0';
+    signal aclk : std_logic;
 
 component ps_pl is
     port (
@@ -102,8 +104,8 @@ component ps_pl is
       PL_WRITE_dout : out std_logic_vector ( 4*float_width - 1 downto 0 );
       PL_WRITE_en : in std_logic;
       PL_WRITE_rst : in std_logic;
-      PL_WRITE_we : in std_logic_vector ( float_width/2 - 1 downto 0 )
-    );
+      PL_WRITE_we : in std_logic_vector ( float_width/2 - 1 downto 0 );
+      clk : out std_logic);
 end component ps_pl;
 
 begin
@@ -122,7 +124,8 @@ begin
           PL_WRITE_dout,
           PL_WRITE_en, -- set to '1'?
           PL_WRITE_rst,
-          PL_WRITE_we);
+          PL_WRITE_we,
+          aclk);
 
 
     process(aclk)
@@ -130,8 +133,6 @@ begin
         if rising_edge(aclk) then
             THIS_PTR_PREV <= THIS_PTR;
             THIS_PTR_PREV_2 <= THIS_PTR_PREV;
-            TRGT_PTR_PREV <= TRGT_PTR;
-            TRGT_PTR_PREV_2 <= TRGT_PTR_PREV;
             blck_cnt_prv <= block_cnt;
             blck_cnt_prv_2 <= blck_cnt_prv;
         end if ;
@@ -146,7 +147,6 @@ begin
                         state <= block_setup;
                         THIS_PTR <= BASE_PTR;
                         TRGT_PTR <= BASE_PTR;
-                        WRITE_PTR <= BASE_PTR;
                     end if;
                     BEGIN_SIGNAL <= PL_READ_dout(0);
                     NUM_PTS <= unsigned(PL_READ_dout(log_ram_depth + 31 downto 32));
@@ -211,15 +211,26 @@ begin
                         TRGT_PTR <= TRGT_PTR + 1;
                         target_cnt <= target_cnt + 1;
                     elsif target_cnt = NUM_PTS then
+                        TRGT(0) <= PL_READ_dout(float_width - 1 downto 0);
+                        TRGT(1) <= PL_READ_dout(2*float_width - 1 downto float_width);
+                        TRGT(2) <= PL_READ_dout(3*float_width - 1 downto 2*float_width);
+                        TRGT_VALID <= '1';
                         target_cnt <= target_cnt + 1;
                     elsif target_cnt = NUM_PTS + 1 then
+                        TRGT(0) <= PL_READ_dout(float_width - 1 downto 0);
+                        TRGT(1) <= PL_READ_dout(2*float_width - 1 downto float_width);
+                        TRGT(2) <= PL_READ_dout(3*float_width - 1 downto 2*float_width);
+                        TRGT_VALID <= '1';
                         target_cnt <= target_cnt + 1;
-                        TRGT_PTR <= BASE_PTR;
                     elsif target_cnt = NUM_PTS + 2 then -- stop computation by changing valid flag
+                        TRGT(0) <= PL_READ_dout(float_width - 1 downto 0);
+                        TRGT(1) <= PL_READ_dout(2*float_width - 1 downto float_width);
+                        TRGT(2) <= PL_READ_dout(3*float_width - 1 downto 2*float_width);
+                        TRGT_VALID <= '0';
                         state <= store;
-                        TRGT_PTR <= TRGT_PTR + 1;
                         target_cnt <= 0;
                     else
+                        TRGT_VALID <= '1';
                         TRGT_PTR <= TRGT_PTR + 1;
                     end if;
                 when store => ----------------------------------------- STORE ----------------------------
@@ -228,10 +239,12 @@ begin
                     end if ;
                 when complete => -------------------------------------- COMPLETE -------------------------
                     if complete_cnt = 0 then
+                        RESET_STORE <= '1';
                         PL_READ_we <= (others => '1');
                         READ_INT_ADDR <= (others => '0');
                         complete_cnt <= complete_cnt + 1;
                     elsif complete_cnt = 3 then
+                        RESET_STORE <= '0';
                         state <= waiting;
                         complete_cnt <= 0;
                     else
@@ -244,10 +257,8 @@ begin
 
     PL_READ_addr <= "1010" & (27 downto log_ram_depth + log_word_width => '0') & (log_ram_depth + log_word_width - 1 downto log_word_width => READ_INT_ADDR) & (log_word_width - 1 downto 0 => '0');
 
-    /*
     CSTORE: entity work.compute_store
-            generic map()
-            port map();
-    */
+            generic map(float_width, fractional, rsqrt_latency, add_latency, mult_latency, fma_latency, add_final_latency, num_blocks, log_ram_depth)
+            port map(aclk, RESET_STORE, TRGT_VALID, X_THIS, TRGT(0), Y_THIS, TRGT(1), Z_THIS, TRGT(2), WRITE_MASK, PL_WRITE_addr, PL_WRITE_din, PL_WRITE_en, PL_WRITE_rst, PL_WRITE_we, STORE_BUSY);
 
 end RTL;

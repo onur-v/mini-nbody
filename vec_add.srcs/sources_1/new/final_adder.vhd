@@ -26,7 +26,7 @@ use work.subprograms_types_pkg.all;
 
 entity final_adder is
     generic (float_width : integer := 32;
-             buffer_width : integer := 17;
+             buffer_width : integer := 16;
              add_final_latency : integer := 11);
     port    (aclk : in std_logic;
              valid_in : in std_logic;
@@ -36,7 +36,7 @@ end final_adder;
 
 architecture RTL of final_adder is
 
-    constant max_buff_depth : integer := 4;
+    constant max_buff_depth : integer := 5;
     type matrix is array(0 to max_buff_depth - 1, 0 to 2**max_buff_depth - 1) of mock_adder;
 
     function adder_structure(buffer_width : integer) return matrix is 
@@ -80,8 +80,8 @@ architecture RTL of final_adder is
     constant log_width : integer := ceil_log2(positive(buffer_width));
     constant fit_width : integer := 2**log_width;
 
-    signal int_signals : bus_array(0 to max_buff_depth * (2**max_buff_depth) - 1)(float_width - 1 downto 0);
-    signal int_valids : std_logic_vector(0 to max_buff_depth * (2**max_buff_depth) - 1);
+    signal int_signals : bus_array(0 to (max_buff_depth + 1) * (2**max_buff_depth) - 1)(float_width - 1 downto 0);
+    signal int_valids : std_logic_vector(0 to (max_buff_depth + 1) * (2**max_buff_depth) - 1);
 
 begin
 
@@ -101,5 +101,6 @@ begin
 
     int_signals(log_width*(2**max_buff_depth) to log_width*(2**max_buff_depth) + buffer_width - 1) <= buff;
     int_valids(log_width*(2**max_buff_depth) to log_width*(2**max_buff_depth) + buffer_width - 1) <= (others => valid_in);
+    sum <= int_signals(0);
 
 end RTL;

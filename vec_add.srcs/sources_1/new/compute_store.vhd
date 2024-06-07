@@ -56,7 +56,7 @@ entity compute_store is
             write_din : out std_logic_vector ( 4*float_width - 1 downto 0 );
             write_en : out std_logic;
             write_rst : out std_logic;
-            write_we : out std_logic_vector ( float_width downto 0 );
+            write_we : out std_logic_vector ( float_width/2 - 1 downto 0 );
             store_busy : out std_logic);
 end compute_store;
 
@@ -71,14 +71,16 @@ architecture RTL of compute_store is
     signal dim_iter_add : integer range 0 to 2 := 0;
     signal block_iter_store : integer range 0 to num_blocks - 1 := 0;
     signal dim_iter_store : integer range 0 to 2 := 0;
+    signal mux_index : integer range 0 to 3*num_blocks - 1 := 0;
 
     signal ZERO_PTR : unsigned(log_ram_depth - 1 downto 0) := (others => '0');
     signal STORE_PTR : unsigned(log_ram_depth - 1 downto 0) := ZERO_PTR;
 
-    signal FMA_RES : bus_array(0 to 3*fma_latency*num_blocks - 1)(float_width - 1 downto 0);
+    --signal FMA_RES : bus_array(0 to 3*fma_latency*num_blocks - 1)(float_width - 1 downto 0);
+    signal FMA_RES : bus_matrix(0 to num_blocks - 1)(0 to 3*fma_latency - 1)(float_width - 1 downto 0);
     signal FMA_RES_CUR : bus_array(0 to fma_latency - 1)(float_width - 1 downto 0);
     signal FMA_VALID_CUR : std_logic := '0';
-    signal BUFF_SUM : std_logic_vector(float_width - 1 downto 0);
+    signal BUFF_SUM : std_logic_vector(float_width - 1 downto 0) := (others => '0');
     signal FMA_BUSY : std_logic := '1';
     signal SCATTER_COMPLETE : std_logic := '0';
     signal WRITE_ONGOING : std_logic := '0';
@@ -89,17 +91,22 @@ begin
 
     BLOCKS_ALL : for I in 0 to num_blocks - 1 generate
 
+
+        
         FIRST_BLOCK: if I = 0 generate
             BLOCK_1 : entity work.fxyz
             generic map(I, float_width, fractional, rsqrt_latency, add_latency, mult_latency, fma_latency)
-            port map(aclk, valid_in, x_this(I), x_target, y_this(I), y_target, z_this(I), z_target, FMA_RES(3*fma_latency*I to 3*fma_latency*(I + 1) - 1), FMA_BUSY, SCATTER_COMPLETE);
+            port map(aclk, valid_in, x_this(I), x_target, y_this(I), y_target, z_this(I), z_target, FMA_RES(I)(0 to 3*fma_latency - 1), FMA_BUSY, SCATTER_COMPLETE);
+            -- port map(aclk, valid_in, x_this(I), x_target, y_this(I), y_target, z_this(I), z_target, FMA_RES(3*fma_latency*I to 3*fma_latency*(I + 1) - 1), FMA_BUSY, SCATTER_COMPLETE);
         end generate FIRST_BLOCK;
 
         REST_BLOCKS: if I > 0 generate
             BLOCK_R : entity work.fxyz
             generic map(I, float_width, fractional, rsqrt_latency, add_latency, mult_latency, fma_latency)
-            port map(aclk, valid_in, x_this(I), x_target, y_this(I), y_target, z_this(I), z_target, FMA_RES(3*fma_latency*I to 3*fma_latency*(I + 1) - 1), open, open);
+            port map(aclk, valid_in, x_this(I), x_target, y_this(I), y_target, z_this(I), z_target, FMA_RES(I)(0 to 3*fma_latency - 1), open, open);
+            -- port map(aclk, valid_in, x_this(I), x_target, y_this(I), y_target, z_this(I), z_target, FMA_RES(3*fma_latency*I to 3*fma_latency*(I + 1) - 1), open, open);
         end generate REST_BLOCKS;
+        
 
     end generate BLOCKS_ALL; 
 
@@ -149,11 +156,16 @@ begin
         if rising_edge(aclk) then
             if SCATTER_COMPLETE = '1' or dim_iter_add /= 0 or block_iter_add /= 0 then
                 if dim_iter_add = 2 then
+                    FMA_RES_CUR <= FMA_RES(block_iter_add)(0 to fma_latency - 1);
                     dim_iter_add <= 0;
+                elsif dim_iter_add = 1 then
+                    FMA_RES_CUR <= FMA_RES(block_iter_add)(fma_latency to 2*fma_latency - 1);
+                    dim_iter_add <= dim_iter_add + 1;
                 else
+                    FMA_RES_CUR <= FMA_RES(block_iter_add)(2*fma_latency to 3*fma_latency - 1);
                     dim_iter_add <= dim_iter_add + 1;
                 end if ;                
-                FMA_RES_CUR <= FMA_RES(3*fma_latency*block_iter_add + dim_iter_add*fma_latency to 3*fma_latency*block_iter_add + dim_iter_add*fma_latency + fma_latency - 1);
+                -- FMA_RES_CUR <= FMA_RES(mux_index to mux_index + fma_latency - 1);
                 FMA_VALID_CUR <= '1';
             else
                 FMA_VALID_CUR <= '0';
