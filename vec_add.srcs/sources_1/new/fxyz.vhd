@@ -193,31 +193,6 @@ begin
         end if ;
     end process;
 
-    -- part to be deleted?
-    process(aclk)
-    begin
-        if rising_edge(aclk) then
-            if SCTTR_CNT = fma_latency - 1 then
-                scatter_complete <= '1';
-            else
-                scatter_complete <= '0';
-            end if ;
-        end if ;
-    end process;
-
-    process(aclk)
-    begin
-        if rising_edge(aclk) then
-            if SCTTR_CNT = fma_latency - 1 then
-                fma_busy <= '0';
-            elsif valid_in then
-                fma_busy <= '1';
-            end if ;
-        end if ;
-    end process;
-
-
-    /*
     GEN_SGN : if thread_idx = 0 generate
         process(aclk)
         begin
@@ -244,6 +219,5 @@ begin
         scatter_complete <= '0';
         fma_busy <= '0';
     end generate GEN_SGN;
-    */
         
 end RTL;

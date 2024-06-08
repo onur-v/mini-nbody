@@ -34,11 +34,11 @@ architecture RTL of top_level is
 
     constant float_width : integer := 32;
     constant fractional : integer := 24;
-    constant rsqrt_latency : integer := 32;
-    constant add_latency : integer := 11;
-    constant mult_latency : integer := 6;
-    constant fma_latency : integer := 19;
-    constant add_final_latency : integer := 11;
+    constant rsqrt_latency : integer := 25;
+    constant add_latency : integer := 8;
+    constant mult_latency : integer := 5;
+    constant fma_latency : integer := 14;
+    constant add_final_latency : integer := add_latency;
 
     constant num_blocks : positive := 2;
     constant ram_depth : natural := 16384;
@@ -47,17 +47,17 @@ architecture RTL of top_level is
 
     type points is array (natural range <>) of std_logic_vector(float_width - 1 downto 0);
     type machine is (waiting, block_setup, compute, store, complete); 
-    signal state : machine := waiting; 
+    signal state : machine := complete; 
 
     signal READ_INT_ADDR, WRITE_INT_ADDR : std_logic_vector(log_ram_depth - 1 downto 0);
     signal BASE_PTR : unsigned(log_ram_depth - 1 downto 0) := (0 => '1', others => '0'); -- base ptr, simply 1
-    signal THIS_PTR, THIS_PTR_PREV, THIS_PTR_PREV_2 : unsigned(log_ram_depth - 1 downto 0);
+    signal THIS_PTR, THIS_PTR_PREV, THIS_PTR_PREV_2, THIS_PTR_PREV_3 : unsigned(log_ram_depth - 1 downto 0);
     signal TRGT_PTR : unsigned(log_ram_depth - 1 downto 0);
     signal WRITE_PTR, WRITE_PTR_PREV, WRITE_PTR_PREV_2 : unsigned(log_ram_depth - 1 downto 0);
 
-    signal block_cnt, blck_cnt_prv, blck_cnt_prv_2 : natural range 0 to num_blocks + 1 := 0;
-    signal target_cnt : natural range 0 to ram_depth - 1 := 0;
-    signal complete_cnt : natural range 0 to 3 := 0;
+    signal block_cnt, blck_cnt_prv, blck_cnt_prv_2, blck_cnt_prv_3 : natural range 0 to num_blocks + 2 := 0;
+    signal target_cnt : natural range 0 to ram_depth + 3 := 0;
+    signal complete_cnt : natural range 0 to 5 := 0;
 
     signal PL_READ_addr : std_logic_vector ( 31 downto 0 );
     signal PL_READ_clk : std_logic;
@@ -127,14 +127,15 @@ begin
           PL_WRITE_we,
           aclk);
 
-
     process(aclk)
     begin
         if rising_edge(aclk) then
             THIS_PTR_PREV <= THIS_PTR;
             THIS_PTR_PREV_2 <= THIS_PTR_PREV;
+            THIS_PTR_PREV_3 <= THIS_PTR_PREV_2;
             blck_cnt_prv <= block_cnt;
             blck_cnt_prv_2 <= blck_cnt_prv;
+            blck_cnt_prv_3 <= blck_cnt_prv_2;
         end if ;
     end process;
 
@@ -157,81 +158,68 @@ begin
                             state <= complete;
                             block_cnt <= 0;
                         else
-                            READ_INT_ADDR <= std_logic_vector(THIS_PTR);
                             block_cnt <= block_cnt + 1;
                         end if;
                         THIS_PTR <= THIS_PTR + 1;
-                    elsif block_cnt = 1 then
-                        READ_INT_ADDR <= std_logic_vector(THIS_PTR);
+                    elsif block_cnt = 1 or block_cnt = 2 then
                         THIS_PTR <= THIS_PTR + 1;
                         block_cnt <= block_cnt + 1;
-                    elsif block_cnt = num_blocks + 1 then
-                        if THIS_PTR_PREV_2 > NUM_PTS then
-                            WRITE_MASK(blck_cnt_prv_2) <= '0';
+                    elsif block_cnt = num_blocks + 2 then
+                        if THIS_PTR_PREV_3 > NUM_PTS then
+                            WRITE_MASK(blck_cnt_prv_3) <= '0';
                         else
-                            WRITE_MASK(blck_cnt_prv_2) <= '1';
+                            WRITE_MASK(blck_cnt_prv_3) <= '1';
                         end if ;
-                        X_THIS(blck_cnt_prv_2) <= PL_READ_dout(float_width - 1 downto 0);
-                        Y_THIS(blck_cnt_prv_2) <= PL_READ_dout(2*float_width - 1 downto float_width);
-                        Z_THIS(blck_cnt_prv_2) <= PL_READ_dout(3*float_width - 1 downto 2*float_width);
+                        X_THIS(blck_cnt_prv_3) <= PL_READ_dout(float_width - 1 downto 0);
+                        Y_THIS(blck_cnt_prv_3) <= PL_READ_dout(2*float_width - 1 downto float_width);
+                        Z_THIS(blck_cnt_prv_3) <= PL_READ_dout(3*float_width - 1 downto 2*float_width);
                         state <= compute;
                         TRGT_PTR <= BASE_PTR;
                         target_cnt <= 0;
                         block_cnt <= 0;
-                    elsif block_cnt = num_blocks then -- skipped if num_blocks = 1 (does the compiler recognize and eliminate?)
-                        if THIS_PTR_PREV_2 > NUM_PTS then
-                            WRITE_MASK(blck_cnt_prv_2) <= '0';
+                    elsif block_cnt = num_blocks or block_cnt = num_blocks + 1 then
+                        if THIS_PTR_PREV_3 > NUM_PTS then
+                            WRITE_MASK(blck_cnt_prv_3) <= '0';
                         else
-                            WRITE_MASK(blck_cnt_prv_2) <= '1';
+                            WRITE_MASK(blck_cnt_prv_3) <= '1';
                         end if ;
-                        X_THIS(blck_cnt_prv_2) <= PL_READ_dout(float_width - 1 downto 0);
-                        Y_THIS(blck_cnt_prv_2) <= PL_READ_dout(2*float_width - 1 downto float_width);
-                        Z_THIS(blck_cnt_prv_2) <= PL_READ_dout(3*float_width - 1 downto 2*float_width);
+                        X_THIS(blck_cnt_prv_3) <= PL_READ_dout(float_width - 1 downto 0);
+                        Y_THIS(blck_cnt_prv_3) <= PL_READ_dout(2*float_width - 1 downto float_width);
+                        Z_THIS(blck_cnt_prv_3) <= PL_READ_dout(3*float_width - 1 downto 2*float_width);
                         block_cnt <= block_cnt + 1;
                     else
-                        if THIS_PTR_PREV_2 > NUM_PTS then
-                            WRITE_MASK(blck_cnt_prv_2) <= '0';
+                        if THIS_PTR_PREV_3 > NUM_PTS then
+                            WRITE_MASK(blck_cnt_prv_3) <= '0';
                         else
-                            WRITE_MASK(blck_cnt_prv_2) <= '1';
+                            WRITE_MASK(blck_cnt_prv_3) <= '1';
                         end if ;
-                        X_THIS(blck_cnt_prv_2) <= PL_READ_dout(float_width - 1 downto 0);
-                        Y_THIS(blck_cnt_prv_2) <= PL_READ_dout(2*float_width - 1 downto float_width);
-                        Z_THIS(blck_cnt_prv_2) <= PL_READ_dout(3*float_width - 1 downto 2*float_width);
+                        X_THIS(blck_cnt_prv_3) <= PL_READ_dout(float_width - 1 downto 0);
+                        Y_THIS(blck_cnt_prv_3) <= PL_READ_dout(2*float_width - 1 downto float_width);
+                        Z_THIS(blck_cnt_prv_3) <= PL_READ_dout(3*float_width - 1 downto 2*float_width);
                         THIS_PTR <= THIS_PTR + 1;
-                        READ_INT_ADDR <= std_logic_vector(THIS_PTR);
                         block_cnt <= block_cnt + 1;
                     end if ;
                 when compute => --------------------------------------- COMPUTE --------------------------
-                    if target_cnt = 0 then
-                        READ_INT_ADDR <= std_logic_vector(TRGT_PTR);
+                    if target_cnt = 0 or target_cnt = 1 or target_cnt = 2 then
                         TRGT_PTR <= TRGT_PTR + 1;
                         target_cnt <= target_cnt + 1;
-                    elsif target_cnt = 1 then
-                        READ_INT_ADDR <= std_logic_vector(TRGT_PTR);
-                        TRGT_PTR <= TRGT_PTR + 1;
-                        target_cnt <= target_cnt + 1;
-                    elsif target_cnt = NUM_PTS then
+                    elsif target_cnt = NUM_PTS or target_cnt = NUM_PTS + 1 or target_cnt = NUM_PTS + 2 then
                         TRGT(0) <= PL_READ_dout(float_width - 1 downto 0);
                         TRGT(1) <= PL_READ_dout(2*float_width - 1 downto float_width);
                         TRGT(2) <= PL_READ_dout(3*float_width - 1 downto 2*float_width);
                         TRGT_VALID <= '1';
                         target_cnt <= target_cnt + 1;
-                    elsif target_cnt = NUM_PTS + 1 then
-                        TRGT(0) <= PL_READ_dout(float_width - 1 downto 0);
-                        TRGT(1) <= PL_READ_dout(2*float_width - 1 downto float_width);
-                        TRGT(2) <= PL_READ_dout(3*float_width - 1 downto 2*float_width);
-                        TRGT_VALID <= '1';
-                        target_cnt <= target_cnt + 1;
-                    elsif target_cnt = NUM_PTS + 2 then -- stop computation by changing valid flag
-                        TRGT(0) <= PL_READ_dout(float_width - 1 downto 0);
-                        TRGT(1) <= PL_READ_dout(2*float_width - 1 downto float_width);
-                        TRGT(2) <= PL_READ_dout(3*float_width - 1 downto 2*float_width);
+                    elsif target_cnt = NUM_PTS + 3 then -- stop computation by changing valid flag
                         TRGT_VALID <= '0';
                         state <= store;
                         target_cnt <= 0;
                     else
+                        TRGT(0) <= PL_READ_dout(float_width - 1 downto 0);
+                        TRGT(1) <= PL_READ_dout(2*float_width - 1 downto float_width);
+                        TRGT(2) <= PL_READ_dout(3*float_width - 1 downto 2*float_width);
                         TRGT_VALID <= '1';
                         TRGT_PTR <= TRGT_PTR + 1;
+                        target_cnt <= target_cnt + 1;
                     end if;
                 when store => ----------------------------------------- STORE ----------------------------
                     if STORE_BUSY = '0' then
@@ -241,9 +229,8 @@ begin
                     if complete_cnt = 0 then
                         RESET_STORE <= '1';
                         PL_READ_we <= (others => '1');
-                        READ_INT_ADDR <= (others => '0');
                         complete_cnt <= complete_cnt + 1;
-                    elsif complete_cnt = 3 then
+                    elsif complete_cnt = 5 then
                         RESET_STORE <= '0';
                         state <= waiting;
                         complete_cnt <= 0;
@@ -254,6 +241,10 @@ begin
             end case;
         end if;
     end process;
+
+    READ_INT_ADDR <= std_logic_vector(THIS_PTR) when state = waiting or state = block_setup else
+                     std_logic_vector(TRGT_PTR) when state = compute else
+                     (others => '0');
 
     PL_READ_addr <= "1010" & (27 downto log_ram_depth + log_word_width => '0') & (log_ram_depth + log_word_width - 1 downto log_word_width => READ_INT_ADDR) & (log_word_width - 1 downto 0 => '0');
 
