@@ -94,16 +94,6 @@ end component;
 
 begin
 
-    /*
-    process(aclk)
-    begin
-        if rising_edge(aclk) then
-            MOCK_INPUT <= MOCK_INPUT + 1;
-        end if;
-    end process;
-    */
-
-
     STAGE1 : entity work.dxyz_soft
     generic map(float_width, fractional, add_latency, mult_latency, fma_latency)
     port map(aclk, valid_in, x_this, x_target, y_this, y_target, z_this, z_target, VALID_1, DIST_SQR, DXDYDZ);
@@ -194,6 +184,7 @@ begin
     end process;
 
     GEN_SGN : if thread_idx = 0 generate
+
         process(aclk)
         begin
             if rising_edge(aclk) then
@@ -215,9 +206,12 @@ begin
                 end if ;
             end if ;
         end process;
+
     else generate
+
         scatter_complete <= '0';
         fma_busy <= '0';
+
     end generate GEN_SGN;
         
 end RTL;

@@ -36,7 +36,7 @@ end final_adder;
 
 architecture RTL of final_adder is
 
-    constant max_buff_depth : integer := 5;
+    constant max_buff_depth : integer := ceil_log2(buffer_width);
     type matrix is array(0 to max_buff_depth - 1, 0 to 2**max_buff_depth - 1) of mock_adder;
 
     function adder_structure(buffer_width : integer) return matrix is 
