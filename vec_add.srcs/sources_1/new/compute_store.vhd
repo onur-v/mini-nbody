@@ -93,8 +93,6 @@ architecture RTL of compute_store is
 begin
 
     BLOCKS_ALL : for I in 0 to num_blocks - 1 generate
-
-
         
         FIRST_BLOCK: if I = 0 generate
             BLOCK_1 : entity work.fxyz

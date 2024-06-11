@@ -52,10 +52,11 @@ architecture RTL of top_level is
 
     type uram_shr is array(0 to uram_latency) of unsigned(log_ram_depth - 1 downto 0);
     signal READ_INT_ADDR, WRITE_INT_ADDR : std_logic_vector(log_ram_depth - 1 downto 0);
+    signal ZERO_PTR : unsigned(log_ram_depth - 1 downto 0) := (others => '0'); -- base ptr, simply 1
     signal BASE_PTR : unsigned(log_ram_depth - 1 downto 0) := (0 => '1', others => '0'); -- base ptr, simply 1
-    signal THIS_PTR : unsigned(log_ram_depth - 1 downto 0);
+    signal THIS_PTR : unsigned(log_ram_depth - 1 downto 0) := BASE_PTR;
     signal THIS_PTR_SHR : uram_shr;
-    signal TRGT_PTR : unsigned(log_ram_depth - 1 downto 0);
+    signal TRGT_PTR : unsigned(log_ram_depth - 1 downto 0) := BASE_PTR;
     signal WRITE_PTR, WRITE_PTR_PREV, WRITE_PTR_PREV_2 : unsigned(log_ram_depth - 1 downto 0);
 
     signal block_cnt, blck_cnt_prv : natural range 0 to num_blocks + uram_latency - 1 := 0;
@@ -84,6 +85,8 @@ architecture RTL of top_level is
     signal WRITE_MASK : std_logic_vector(0 to num_blocks - 1);
     signal TRGT : points(0 to 2);
     signal TRGT_VALID : std_logic := '0';
+    signal TRGT_FIRST, TRGT_LAST : std_logic := '0';
+    signal PIPE_LATENCY : integer range 0 to maximum(add_latency + mult_latency, fma_latency) + 2*(add_latency + mult_latency) + rsqrt_latency := 0;
 
     signal NUM_PTS : unsigned(log_ram_depth - 1 downto 0);
     signal BEGIN_SIGNAL : std_logic := '0';
@@ -128,7 +131,6 @@ begin
             else
                 clk_div <= clk_div + 1;
             end if;
-            BEGIN_SIGNAL_PREV <= BEGIN_SIGNAL;
         end if;
     end process;
 
@@ -145,6 +147,19 @@ begin
         end if;
     end process;
 
+    process(aclk)
+    begin
+        if rising_edge(aclk) then
+            if BEGIN_SIGNAL = '1' and BEGIN_SIGNAL_PREV = '0' then
+                RESET <= '0';
+            else
+                RESET <= '0';
+            end if;
+            BEGIN_SIGNAL_PREV <= BEGIN_SIGNAL;
+        end if;
+    end process;
+
+    BEGIN_SIGNAL <= PL_READ_dout(0);
     PL_READ_din(63 downto 32) <= std_logic_vector(clk_ctr);
 
     URAM : ps_pl
@@ -180,11 +195,10 @@ begin
         if rising_edge(aclk) then
             case(state) is
                 when waiting => ---------------------------------------- WAITING -------------------------
-                    if BEGIN_SIGNAL then
+                    if BEGIN_SIGNAL = '1' and RESET = '0' then
                         state <= block_setup;
-                        RESET <= '1';
+                        THIS_PTR <= BASE_PTR;
                     end if;
-                    BEGIN_SIGNAL <= PL_READ_dout(0);
                     NUM_PTS <= unsigned(PL_READ_dout(log_ram_depth + 31 downto 32));
                     DEBUG <= PL_READ_dout(64);
                     PL_READ_we <= (others => '0');
@@ -193,9 +207,7 @@ begin
                         if(THIS_PTR > NUM_PTS) then
                             -- WRITE_MASK <= (others => '0');
                             state <= complete;
-                            THIS_PTR <= BASE_PTR;
                         elsif STORE_BUSY = '0' then
-                            RESET <= '0';
                             THIS_PTR <= THIS_PTR + 1;
                             block_cnt <= block_cnt + 1;
                         end if;
@@ -276,9 +288,9 @@ begin
 
 
 
-    READ_INT_ADDR <= std_logic_vector(THIS_PTR) when state = waiting or state = block_setup else
+    READ_INT_ADDR <= std_logic_vector(THIS_PTR) when state = block_setup else
                      std_logic_vector(TRGT_PTR) when state = compute else
-                     (others => '0');
+                     std_logic_vector(ZERO_PTR);
 
     PL_READ_addr <= "1010" & (27 downto log_ram_depth + log_word_width => '0') & (log_ram_depth + log_word_width - 1 downto log_word_width => READ_INT_ADDR) & (log_word_width - 1 downto 0 => '0');
 

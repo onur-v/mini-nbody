@@ -79,7 +79,7 @@ begin
     else generate
 
         SINGLE_ADD : add_final
-        port map(aclk, valid1, input1, valid2, input2, valid_res, result);
+        port map(aclk, '1', input1, '1', input2, open, result);
 
     end generate GEN_ADD;
 
