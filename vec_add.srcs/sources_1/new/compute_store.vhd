@@ -43,7 +43,7 @@ entity compute_store is
             num_blocks : integer := 4;
             log_ram_depth : positive := 14); -- ceil_log2(16384) -- total BRAM 262144 bytes, 16384 words
     port   (aclk : in std_logic;
-            reset_store : in std_logic;
+            reset : in std_logic;
             valid_in : in std_logic;
             x_this : in  bus_array(0 to num_blocks - 1)(float_width - 1 downto 0);
             x_target : in std_logic_vector(float_width - 1 downto 0);
@@ -58,7 +58,8 @@ entity compute_store is
             write_rst : out std_logic;
             write_we : out std_logic_vector ( float_width/2 - 1 downto 0 );
             store_busy : out std_logic;
-            this_ptr : in std_logic_vector(log_ram_depth - 1 downto 0));
+            this_ptr : in std_logic_vector(log_ram_depth - 1 downto 0);
+            debug : in std_logic);
 end compute_store;
 
 architecture RTL of compute_store is
@@ -98,13 +99,13 @@ begin
         FIRST_BLOCK: if I = 0 generate
             BLOCK_1 : entity work.fxyz
             generic map(I, float_width, fractional, rsqrt_latency, add_latency, mult_latency, fma_latency)
-            port map(aclk, valid_in, x_this(I), x_target, y_this(I), y_target, z_this(I), z_target, FMA_RES(I)(0 to 3*fma_latency - 1), FMA_BUSY, SCATTER_COMPLETE);
+            port map(aclk, reset, valid_in, x_this(I), x_target, y_this(I), y_target, z_this(I), z_target, FMA_RES(I)(0 to 3*fma_latency - 1), FMA_BUSY, SCATTER_COMPLETE);
         end generate FIRST_BLOCK;
 
         REST_BLOCKS: if I > 0 generate
             BLOCK_R : entity work.fxyz
             generic map(I, float_width, fractional, rsqrt_latency, add_latency, mult_latency, fma_latency)
-            port map(aclk, valid_in, x_this(I), x_target, y_this(I), y_target, z_this(I), z_target, FMA_RES(I)(0 to 3*fma_latency - 1), open, open);
+            port map(aclk, reset, valid_in, x_this(I), x_target, y_this(I), y_target, z_this(I), z_target, FMA_RES(I)(0 to 3*fma_latency - 1), open, open);
         end generate REST_BLOCKS;
         
 
@@ -128,7 +129,9 @@ begin
     process(aclk)
     begin
         if rising_edge(aclk) then
-            if SCATTER_COMPLETE = '1' then
+            if reset = '1' then
+                WRITE_ONGOING <= '0';
+            elsif SCATTER_COMPLETE = '1' then
                 WRITE_ONGOING <= '1';
             elsif dim_iter_store = 2 and block_iter_store = num_blocks - 1 then
                 WRITE_ONGOING <= '0';
@@ -140,7 +143,9 @@ begin
     process(aclk)
     begin
         if rising_edge(aclk) then
-            if dim_iter_add = 2 then
+            if reset = '1' then
+                block_iter_add <= 0;
+            elsif dim_iter_add = 2 then
                 if block_iter_add = num_blocks - 1 then
                     block_iter_add <= 0;
                 else
@@ -154,7 +159,9 @@ begin
     process(aclk)
     begin
         if rising_edge(aclk) then
-            if SCATTER_COMPLETE = '1' or dim_iter_add /= 0 or block_iter_add /= 0 then
+            if reset = '1' then
+                dim_iter_add <= 0;
+            elsif SCATTER_COMPLETE = '1' or dim_iter_add /= 0 or block_iter_add /= 0 then
                 if dim_iter_add = 2 then
                     FMA_RES_CUR <= FMA_RES(block_iter_add)(2*fma_latency to 3*fma_latency - 1);
                     dim_iter_add <= 0;
@@ -176,7 +183,9 @@ begin
     process(aclk)
     begin
         if rising_edge(aclk) then
-            if SCATTER_COMPLETE = '1' then
+            if reset = '1' then
+                gather_iter <= 0;
+            elsif SCATTER_COMPLETE = '1' then
                 gather_iter <= gather_iter + 1;
             elsif gather_iter = 0  or gather_iter = add_pipeline_latency + 1 then
                 gather_iter <= 0;
@@ -190,7 +199,9 @@ begin
     process(aclk)
     begin
         if rising_edge(aclk) then
-            if dim_iter_store = 2 then
+            if reset = '1' then
+                block_iter_store <= 0;
+            elsif dim_iter_store = 2 then
                 if block_iter_store = num_blocks - 1 then
                     block_iter_store <= 0;
                 else
@@ -204,15 +215,27 @@ begin
     process(aclk)
     begin
         if rising_edge(aclk) then
-            if gather_iter = add_pipeline_latency + 1 or dim_iter_store /= 0 or block_iter_store /= 0 then
+            if reset = '1' then
+                dim_iter_store <= 0;
+            elsif gather_iter = add_pipeline_latency + 1 or dim_iter_store /= 0 or block_iter_store /= 0 then
                 if dim_iter_store = 2 then
                     dim_iter_store <= 0;
                 else
                     dim_iter_store <= dim_iter_store + 1;
                 end if ;                
-                WRITE_INT_DIN((dim_iter_store + 1)*float_width - 1 downto dim_iter_store*float_width) <= BUFF_SUM;
-                --WRITE_INT_DIN((dim_iter_store + 1)*float_width - 1 downto dim_iter_store*float_width) <= std_logic_vector(to_unsigned(gather_iter, 8)) & std_logic_vector(to_unsigned(dim_iter_store, 4)) & std_logic_vector(to_unsigned(block_iter_store,4)) & std_logic_vector(this_ptr(7 downto 0)) &  std_logic_vector(STORE_PTR(7 downto 0));
-                
+            end if ;
+        end if ;
+    end process;
+
+    process(aclk)
+    begin
+        if rising_edge(aclk) then
+            if gather_iter = add_pipeline_latency + 1 or dim_iter_store /= 0 or block_iter_store /= 0 then
+                if DEBUG = '1' then
+                    WRITE_INT_DIN((dim_iter_store + 1)*float_width - 1 downto dim_iter_store*float_width) <= BUFF_SUM;
+                else
+                    WRITE_INT_DIN((dim_iter_store + 1)*float_width - 1 downto dim_iter_store*float_width) <= std_logic_vector(to_unsigned(gather_iter, 8)) & std_logic_vector(to_unsigned(dim_iter_store, 4)) & std_logic_vector(to_unsigned(block_iter_store,4)) & std_logic_vector(this_ptr(7 downto 0)) &  std_logic_vector(STORE_PTR(7 downto 0));
+                end if;                
             end if ;
         end if ;
     end process;
@@ -221,7 +244,7 @@ begin
     process(aclk)
     begin
         if rising_edge(aclk) then
-            if reset_store = '1' then
+            if reset = '1' then
                 STORE_PTR <= ZERO_PTR;
                 write_we <= (others => '0');
             elsif dim_iter_store = 2 then

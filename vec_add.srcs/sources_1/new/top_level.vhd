@@ -41,7 +41,7 @@ architecture RTL of top_level is
     constant add_final_latency : integer := add_latency;
     constant uram_latency : integer := 3;
 
-    constant num_blocks : positive := 12;
+    constant num_blocks : positive := 3;
     constant ram_depth : natural := 16384*2;
     constant log_ram_depth : natural := ceil_log2(ram_depth); -- ceil_log2(16384) -- total BRAM 262144 bytes
     constant log_word_width : natural := ceil_log2(float_width/2); -- ceil_log2(4*float_width(bits)/8(bits)) --automate this
@@ -89,13 +89,15 @@ architecture RTL of top_level is
     signal BEGIN_SIGNAL : std_logic := '0';
 
     signal STORE_BUSY : std_logic := '0';
-    signal RESET_STORE : std_logic := '0';
+    signal RESET : std_logic := '0';
     signal aclk : std_logic;
 
     signal clk_ctr : unsigned(31 downto 0) := (others => '0');
     signal clk_div : integer range 0 to 999 := 0;
 
     signal BEGIN_SIGNAL_PREV : std_logic;
+
+    signal DEBUG : std_logic;
 
 component ps_pl is
     port (
@@ -133,7 +135,7 @@ begin
     process(aclk)
     begin
         if rising_edge(aclk) then
-            if RESET_STORE = '1' then
+            if RESET = '1' then
                 clk_ctr <= (others => '0');
             elsif BEGIN_SIGNAL = '1' and BEGIN_SIGNAL_PREV = '0' then
                 clk_ctr <= clk_ctr + 1;
@@ -180,9 +182,11 @@ begin
                 when waiting => ---------------------------------------- WAITING -------------------------
                     if BEGIN_SIGNAL then
                         state <= block_setup;
+                        RESET <= '1';
                     end if;
                     BEGIN_SIGNAL <= PL_READ_dout(0);
                     NUM_PTS <= unsigned(PL_READ_dout(log_ram_depth + 31 downto 32));
+                    DEBUG <= PL_READ_dout(64);
                     PL_READ_we <= (others => '0');
                 when block_setup => ------------------------------------ BLOCK_SETUP ---------------------
                     if block_cnt = 0 then
@@ -191,6 +195,7 @@ begin
                             state <= complete;
                             THIS_PTR <= BASE_PTR;
                         elsif STORE_BUSY = '0' then
+                            RESET <= '0';
                             THIS_PTR <= THIS_PTR + 1;
                             block_cnt <= block_cnt + 1;
                         end if;
@@ -254,11 +259,9 @@ begin
                     end if;
                 when complete => -------------------------------------- COMPLETE -------------------------
                     if complete_cnt = 0 then
-                        RESET_STORE <= '1';
                         PL_READ_we <= (others => '1');
                         complete_cnt <= complete_cnt + 1;
                     elsif complete_cnt = 1 then
-                        RESET_STORE <= '0';
                         PL_READ_we <= (others => '0');
                         complete_cnt <= complete_cnt + 1;
                     elsif complete_cnt = 15 then
@@ -281,6 +284,6 @@ begin
 
     CSTORE: entity work.compute_store
             generic map(float_width, fractional, rsqrt_latency, add_latency, mult_latency, fma_latency, add_final_latency, num_blocks, log_ram_depth)
-            port map(aclk, RESET_STORE, TRGT_VALID, X_THIS, TRGT(0), Y_THIS, TRGT(1), Z_THIS, TRGT(2), WRITE_MASK, PL_WRITE_addr, PL_WRITE_din, PL_WRITE_en, PL_WRITE_rst, PL_WRITE_we, STORE_BUSY, std_logic_vector(THIS_PTR));
+            port map(aclk, RESET, TRGT_VALID, X_THIS, TRGT(0), Y_THIS, TRGT(1), Z_THIS, TRGT(2), WRITE_MASK, PL_WRITE_addr, PL_WRITE_din, PL_WRITE_en, PL_WRITE_rst, PL_WRITE_we, STORE_BUSY, std_logic_vector(THIS_PTR), DEBUG);
 
 end RTL;
