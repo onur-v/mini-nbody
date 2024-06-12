@@ -39,10 +39,10 @@ architecture RTL of top_level is
     constant mult_latency : integer := 6;
     constant fma_latency : integer := 16;
     constant add_final_latency : integer := add_latency;
-    constant uram_latency : integer := 3;
+    constant uram_latency : integer := 8;
 
-    constant num_blocks : positive := 3;
-    constant ram_depth : natural := 16384*2;
+    constant num_blocks : positive := 4;
+    constant ram_depth : natural := 16384*4;
     constant log_ram_depth : natural := ceil_log2(ram_depth); -- ceil_log2(16384) -- total BRAM 262144 bytes
     constant log_word_width : natural := ceil_log2(float_width/2); -- ceil_log2(4*float_width(bits)/8(bits)) --automate this
 
@@ -60,7 +60,7 @@ architecture RTL of top_level is
     signal WRITE_PTR, WRITE_PTR_PREV, WRITE_PTR_PREV_2 : unsigned(log_ram_depth - 1 downto 0);
 
     signal block_cnt, blck_cnt_prv : natural range 0 to num_blocks + uram_latency - 1 := 0;
-    signal target_cnt : natural range 0 to ram_depth + 3 := 0;
+    signal target_cnt : natural range 0 to ram_depth + uram_latency := 0;
     signal complete_cnt : natural range 0 to 15 := 0;
 
     signal PL_READ_addr : std_logic_vector ( 31 downto 0 );
@@ -202,14 +202,11 @@ begin
                 when block_setup => ------------------------------------ BLOCK_SETUP ---------------------
                     if block_cnt = 0 then
                         if(THIS_PTR > NUM_PTS) then
-                            -- WRITE_MASK <= (others => '0');
                             state <= complete;
                         else 
-                            THIS_PTR <= THIS_PTR + 1;
                             block_cnt <= block_cnt + 1;
                         end if;
                     elsif block_cnt < uram_latency then
-                        THIS_PTR <= THIS_PTR + 1;
                         block_cnt <= block_cnt + 1;
                     elsif block_cnt < num_blocks then
                         if THIS_PTR_SHR(uram_latency) > NUM_PTS then
@@ -220,7 +217,6 @@ begin
                         X_THIS(block_cnt - uram_latency) <= PL_READ_dout(float_width - 1 downto 0);
                         Y_THIS(block_cnt - uram_latency) <= PL_READ_dout(2*float_width - 1 downto float_width);
                         Z_THIS(block_cnt - uram_latency) <= PL_READ_dout(3*float_width - 1 downto 2*float_width);
-                        THIS_PTR <= THIS_PTR + 1;
                         block_cnt <= block_cnt + 1;
                     elsif block_cnt < num_blocks - 1 + uram_latency then
                         if THIS_PTR_SHR(uram_latency) > NUM_PTS then
@@ -244,27 +240,28 @@ begin
                         state <= compute;
                         block_cnt <= 0;
                     end if ;
+                    if block_cnt < num_blocks then
+                        THIS_PTR <= THIS_PTR + 1;
+                    end if;
                 when compute => --------------------------------------- COMPUTE --------------------------
                     if target_cnt < uram_latency then
-                        TRGT_PTR <= TRGT_PTR + 1;
+                        TRGT_VALID <= '0';
                         target_cnt <= target_cnt + 1;
-                    elsif target_cnt < to_integer(NUM_PTS) then
+                    elsif target_cnt < to_integer(NUM_PTS) + uram_latency then
                         TRGT(0) <= PL_READ_dout(float_width - 1 downto 0);
                         TRGT(1) <= PL_READ_dout(2*float_width - 1 downto float_width);
                         TRGT(2) <= PL_READ_dout(3*float_width - 1 downto 2*float_width);
                         TRGT_VALID <= '1';
-                        TRGT_PTR <= TRGT_PTR + 1;
-                        target_cnt <= target_cnt + 1;
-                    elsif target_cnt < to_integer(NUM_PTS) + uram_latency then
-                        TRGT_PTR <= BASE_PTR;
-                        TRGT(0) <= PL_READ_dout(float_width - 1 downto 0);
-                        TRGT(1) <= PL_READ_dout(2*float_width - 1 downto float_width);
-                        TRGT(2) <= PL_READ_dout(3*float_width - 1 downto 2*float_width);
                         target_cnt <= target_cnt + 1;
                     else -- stop computation by changing valid flag
                         TRGT_VALID <= '0';
                         target_cnt <= 0;
                         state <= store;
+                    end if;
+                    if target_cnt < to_integer(NUM_PTS) then
+                        TRGT_PTR <= TRGT_PTR + 1;
+                    else
+                        TRGT_PTR <= BASE_PTR;
                     end if;
                 when store =>
                     if STORE_BUSY = '0' then
