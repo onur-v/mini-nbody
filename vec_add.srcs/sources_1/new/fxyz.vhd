@@ -34,7 +34,6 @@ entity fxyz is
             mult_latency : integer := 8;
             fma_latency : integer := 16);
     port   (aclk : in std_logic;
-            reset : in std_logic;
             valid_in : in std_logic;
             x_this : in std_logic_vector(float_width - 1 downto 0);
             x_target : in std_logic_vector(float_width - 1 downto 0);
@@ -148,9 +147,7 @@ begin
     process(aclk)
     begin
         if rising_edge(aclk) then
-            if reset = '1' then
-                SCTTR_CNT <= 0;
-            elsif SCTTR_ACTV = '1' then
+            if SCTTR_ACTV = '1' then
                 if SCTTR_CNT = fma_latency - 1 then
                     SCTTR_CNT <= 0;
                 else
@@ -191,9 +188,7 @@ begin
         process(aclk)
         begin
             if rising_edge(aclk) then
-                if reset = '1' then
-                    scatter_complete <= '0';
-                elsif SCTTR_CNT = fma_latency - 1 then
+                if SCTTR_CNT = fma_latency - 1 then
                     scatter_complete <= '1';
                 else
                     scatter_complete <= '0';
@@ -204,9 +199,7 @@ begin
         process(aclk)
         begin
             if rising_edge(aclk) then
-                if reset = '1' then
-                    fma_busy <= '0';
-                elsif SCTTR_CNT = fma_latency - 1 then
+                if SCTTR_CNT = fma_latency - 1 then
                     fma_busy <= '0';
                 elsif valid_in then
                     fma_busy <= '1';

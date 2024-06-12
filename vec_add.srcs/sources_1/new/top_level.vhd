@@ -47,8 +47,8 @@ architecture RTL of top_level is
     constant log_word_width : natural := ceil_log2(float_width/2); -- ceil_log2(4*float_width(bits)/8(bits)) --automate this
 
     type points is array (natural range <>) of std_logic_vector(float_width - 1 downto 0);
-    type machine is (waiting, block_setup, compute, complete); 
-    signal state : machine := waiting; 
+    type machine is (waiting, block_setup, compute, store, complete); 
+    signal state : machine := complete; 
 
     type uram_shr is array(0 to uram_latency) of unsigned(log_ram_depth - 1 downto 0);
     signal READ_INT_ADDR, WRITE_INT_ADDR : std_logic_vector(log_ram_depth - 1 downto 0);
@@ -82,7 +82,7 @@ architecture RTL of top_level is
     signal COMP_ACTV : std_logic := '0';
 
     signal X_THIS, Y_THIS, Z_THIS : bus_array(0 to num_blocks - 1)(float_width - 1 downto 0);
-    signal WRITE_MASK : std_logic_vector(0 to num_blocks - 1);
+    signal WRITE_MASK : std_logic_vector(0 to num_blocks - 1) := (others => '0');
     signal TRGT : points(0 to 2);
     signal TRGT_VALID : std_logic := '0';
     signal TRGT_FIRST, TRGT_LAST : std_logic := '0';
@@ -92,8 +92,8 @@ architecture RTL of top_level is
     signal BEGIN_SIGNAL : std_logic := '0';
 
     signal STORE_BUSY : std_logic := '0';
-    signal RESET : std_logic := '0';
     signal aclk : std_logic;
+    signal RESET_STORE : std_logic := '0';
 
     signal clk_ctr : unsigned(31 downto 0) := (others => '0');
     signal clk_div : integer range 0 to 999 := 0;
@@ -137,30 +137,23 @@ begin
     process(aclk)
     begin
         if rising_edge(aclk) then
-            if RESET = '1' then
-                clk_ctr <= (others => '0');
-            elsif BEGIN_SIGNAL = '1' and BEGIN_SIGNAL_PREV = '0' then
-                clk_ctr <= clk_ctr + 1;
+            if BEGIN_SIGNAL = '1' and BEGIN_SIGNAL_PREV = '0' then
+                clk_ctr <= (0 => '1', others => '0');
             elsif clk_div = 999 and clk_ctr /= 0 then
                 clk_ctr <= clk_ctr + 1;
             end if;                
         end if;
     end process;
+    PL_READ_din(63 downto 32) <= std_logic_vector(clk_ctr);
+    PL_READ_din(31 downto 0) <= (others => '0');
 
     process(aclk)
     begin
         if rising_edge(aclk) then
-            if BEGIN_SIGNAL = '1' and BEGIN_SIGNAL_PREV = '0' then
-                RESET <= '0';
-            else
-                RESET <= '0';
-            end if;
             BEGIN_SIGNAL_PREV <= BEGIN_SIGNAL;
         end if;
     end process;
 
-    BEGIN_SIGNAL <= PL_READ_dout(0);
-    PL_READ_din(63 downto 32) <= std_logic_vector(clk_ctr);
 
     URAM : ps_pl
     port map (PL_READ_addr,
@@ -195,19 +188,23 @@ begin
         if rising_edge(aclk) then
             case(state) is
                 when waiting => ---------------------------------------- WAITING -------------------------
-                    if BEGIN_SIGNAL = '1' and RESET = '0' then
+                    if BEGIN_SIGNAL = '1' then
                         state <= block_setup;
+                        BEGIN_SIGNAL <= '0';
+                    else
                         THIS_PTR <= BASE_PTR;
+                        TRGT_PTR <= BASE_PTR;
+                        BEGIN_SIGNAL <= PL_READ_dout(0);
+                        NUM_PTS <= unsigned(PL_READ_dout(log_ram_depth + 31 downto 32));
+                        DEBUG <= PL_READ_dout(64);
+                        PL_READ_we <= (others => '0');
                     end if;
-                    NUM_PTS <= unsigned(PL_READ_dout(log_ram_depth + 31 downto 32));
-                    DEBUG <= PL_READ_dout(64);
-                    PL_READ_we <= (others => '0');
                 when block_setup => ------------------------------------ BLOCK_SETUP ---------------------
                     if block_cnt = 0 then
                         if(THIS_PTR > NUM_PTS) then
                             -- WRITE_MASK <= (others => '0');
                             state <= complete;
-                        elsif STORE_BUSY = '0' then
+                        else 
                             THIS_PTR <= THIS_PTR + 1;
                             block_cnt <= block_cnt + 1;
                         end if;
@@ -266,17 +263,23 @@ begin
                         target_cnt <= target_cnt + 1;
                     else -- stop computation by changing valid flag
                         TRGT_VALID <= '0';
-                        state <= block_setup;
                         target_cnt <= 0;
+                        state <= store;
+                    end if;
+                when store =>
+                    if STORE_BUSY = '0' then
+                        state <= block_setup;
                     end if;
                 when complete => -------------------------------------- COMPLETE -------------------------
                     if complete_cnt = 0 then
                         PL_READ_we <= (others => '1');
+                        RESET_STORE <= '1';
                         complete_cnt <= complete_cnt + 1;
-                    elsif complete_cnt = 1 then
+                    elsif complete_cnt = 5 then
                         PL_READ_we <= (others => '0');
+                        RESET_STORE <= '0';
                         complete_cnt <= complete_cnt + 1;
-                    elsif complete_cnt = 15 then
+                    elsif complete_cnt = 8 then
                         state <= waiting;
                         complete_cnt <= 0;
                     else
@@ -289,13 +292,13 @@ begin
 
 
     READ_INT_ADDR <= std_logic_vector(THIS_PTR) when state = block_setup else
-                     std_logic_vector(TRGT_PTR) when state = compute else
+                     std_logic_vector(TRGT_PTR) when state = compute or state = store else
                      std_logic_vector(ZERO_PTR);
 
     PL_READ_addr <= "1010" & (27 downto log_ram_depth + log_word_width => '0') & (log_ram_depth + log_word_width - 1 downto log_word_width => READ_INT_ADDR) & (log_word_width - 1 downto 0 => '0');
 
     CSTORE: entity work.compute_store
             generic map(float_width, fractional, rsqrt_latency, add_latency, mult_latency, fma_latency, add_final_latency, num_blocks, log_ram_depth)
-            port map(aclk, RESET, TRGT_VALID, X_THIS, TRGT(0), Y_THIS, TRGT(1), Z_THIS, TRGT(2), WRITE_MASK, PL_WRITE_addr, PL_WRITE_din, PL_WRITE_en, PL_WRITE_rst, PL_WRITE_we, STORE_BUSY, std_logic_vector(THIS_PTR), DEBUG);
+            port map(aclk, RESET_STORE, TRGT_VALID, X_THIS, TRGT(0), Y_THIS, TRGT(1), Z_THIS, TRGT(2), WRITE_MASK, PL_WRITE_addr, PL_WRITE_din, PL_WRITE_en, PL_WRITE_rst, PL_WRITE_we, STORE_BUSY, std_logic_vector(THIS_PTR), DEBUG);
 
 end RTL;
