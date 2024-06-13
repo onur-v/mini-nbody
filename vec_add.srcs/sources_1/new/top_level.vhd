@@ -39,9 +39,9 @@ architecture RTL of top_level is
     constant mult_latency : integer := 6;
     constant fma_latency : integer := 16;
     constant add_final_latency : integer := add_latency;
-    constant uram_latency : integer := 8;
+    constant uram_latency : integer := 6;
 
-    constant num_blocks : positive := 4;
+    constant num_blocks : positive := 16;
     constant ram_depth : natural := 16384*4;
     constant log_ram_depth : natural := ceil_log2(ram_depth); -- ceil_log2(16384) -- total BRAM 262144 bytes
     constant log_word_width : natural := ceil_log2(float_width/2); -- ceil_log2(4*float_width(bits)/8(bits)) --automate this
@@ -61,6 +61,7 @@ architecture RTL of top_level is
 
     signal block_cnt, blck_cnt_prv : natural range 0 to num_blocks + uram_latency - 1 := 0;
     signal target_cnt : natural range 0 to ram_depth + uram_latency := 0;
+    signal target_compare : natural range 0 to ram_depth + uram_latency;
     signal complete_cnt : natural range 0 to 15 := 0;
 
     signal PL_READ_addr : std_logic_vector ( 31 downto 0 );
@@ -126,7 +127,9 @@ begin
     process(aclk)
     begin
         if rising_edge(aclk) then
-            if clk_div = 999 then
+            if BEGIN_SIGNAL = '1' and BEGIN_SIGNAL_PREV = '0' then
+                clk_div <= 0;
+            elsif clk_div = 999 then
                 clk_div <= 0;
             else
                 clk_div <= clk_div + 1;
@@ -191,6 +194,7 @@ begin
                     if BEGIN_SIGNAL = '1' then
                         state <= block_setup;
                         BEGIN_SIGNAL <= '0';
+                        target_compare <= to_integer(NUM_PTS) + uram_latency; -- added to reduce negative slack
                     else
                         THIS_PTR <= BASE_PTR;
                         TRGT_PTR <= BASE_PTR;
@@ -247,7 +251,7 @@ begin
                     if target_cnt < uram_latency then
                         TRGT_VALID <= '0';
                         target_cnt <= target_cnt + 1;
-                    elsif target_cnt < to_integer(NUM_PTS) + uram_latency then
+                    elsif target_cnt < target_compare then
                         TRGT(0) <= PL_READ_dout(float_width - 1 downto 0);
                         TRGT(1) <= PL_READ_dout(2*float_width - 1 downto float_width);
                         TRGT(2) <= PL_READ_dout(3*float_width - 1 downto 2*float_width);
