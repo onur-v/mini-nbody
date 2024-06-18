@@ -27,6 +27,7 @@ use work.subprograms_types_pkg.all;
 -- Begin top_level
 
 entity top_level is
+    Port(fan_en : out std_logic);
 end top_level;
 
 architecture RTL of top_level is
@@ -39,7 +40,7 @@ architecture RTL of top_level is
     constant mult_latency : integer := 6;
     constant fma_latency : integer := 16;
     constant add_final_latency : integer := add_latency;
-    constant uram_latency : integer := 6;
+    constant uram_latency : integer := 5;
 
     constant num_blocks : positive := 16;
     constant ram_depth : natural := 16384*4;
@@ -102,7 +103,8 @@ architecture RTL of top_level is
     signal BEGIN_SIGNAL_PREV : std_logic;
 
     signal DEBUG : std_logic;
-
+    signal fan : std_logic_vector(0 downto 0);
+    
 component ps_pl is
     port (
       PL_READ_addr : in std_logic_vector ( 31 downto 0 );
@@ -119,10 +121,14 @@ component ps_pl is
       PL_WRITE_en : in std_logic;
       PL_WRITE_rst : in std_logic;
       PL_WRITE_we : in std_logic_vector ( float_width/2 - 1 downto 0 );
-      clk : out std_logic);
+      clk : out std_logic;
+      fan : out STD_LOGIC_VECTOR ( 0 to 0 ));
+      
 end component ps_pl;
 
 begin
+    
+    fan_en <= fan(0);
 
     process(aclk)
     begin
@@ -173,7 +179,8 @@ begin
           PL_WRITE_en, -- set to '1'?
           PL_WRITE_rst,
           PL_WRITE_we,
-          aclk);
+          aclk,
+          fan);
 
     THIS_PTR_SHR(0) <= THIS_PTR;
     
